@@ -5,69 +5,116 @@ mod crypto;
 mod models;
 mod storage;
 
-use models::Vault;
+use crypto::generate_recovery_phrase;
+use models::{Account, Vault};
 use std::sync::Mutex;
-use storage::{load_vault, save_vault};
+use storage::{load_vault, save_vault, update_vault};
 
-// This struct holds our application state in RAM while the app is running.
+// --- ACTIVE MEMORY STATE ---
 struct AppState {
-    // The vault is wrapped in an Option (it might be locked/None)
-    // and a Mutex (to prevent multiple threads from mutating it at once).
     vault: Mutex<Option<Vault>>,
-    // Hardcoded for the prototype. We can make this dynamic later.
+    dek: Mutex<Option<[u8; 32]>>, // We now cache the DEK securely in RAM
     file_path: String,
 }
 
+// --- TAURI COMMANDS (THE API) ---
+
+/// Checks if a vault file already exists on this computer.
+#[tauri::command]
+fn check_vault_exists(state: tauri::State<'_, AppState>) -> bool {
+    std::path::Path::new(&state.file_path).exists()
+}
+
+/// Creates a brand new vault and returns the 24-word recovery phrase to React.
+#[tauri::command]
+fn create_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    if check_vault_exists(state.clone()) {
+        return Err("A vault already exists on this machine.".to_string());
+    }
+
+    let phrase = generate_recovery_phrase();
+    let empty_vault = Vault::new();
+
+    save_vault(&empty_vault, password, &phrase, &state.file_path)?;
+    Ok(phrase) // Send the words to the UI so the user can write them down
+}
+
+/// Unlocks an existing vault and stores the Data and DEK in RAM.
+#[tauri::command]
+fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    match load_vault(password, &state.file_path) {
+        Ok((decrypted_vault, decrypted_dek)) => {
+            *state.vault.lock().unwrap() = Some(decrypted_vault);
+            *state.dek.lock().unwrap() = Some(decrypted_dek);
+            Ok("Vault unlocked".to_string())
+        }
+        Err(_) => Err("Invalid Master Password or corrupted file.".to_string()),
+    }
+}
+
+/// Securely wipes active memory.
+#[tauri::command]
+fn lock_vault(state: tauri::State<'_, AppState>) {
+    *state.vault.lock().unwrap() = None;
+
+    // Cryptographically zero out the DEK
+    let mut dek_guard = state.dek.lock().unwrap();
+    if let Some(mut dek) = *dek_guard {
+        dek.fill(0); // Overwrite RAM with zeros before dropping
+    }
+    *dek_guard = None;
+}
+
+/// Sends the list of accounts to the React UI.
+#[tauri::command]
+fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, String> {
+    let vault_guard = state.vault.lock().unwrap();
+    match &*vault_guard {
+        Some(vault) => Ok(vault.accounts.clone()),
+        None => Err("Vault is currently locked.".to_string()),
+    }
+}
+
+/// Receives a new or updated Account from React and saves it securely to disk.
+#[tauri::command]
+fn save_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut vault_guard = state.vault.lock().unwrap();
+    let dek_guard = state.dek.lock().unwrap();
+
+    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        // Check if updating or adding
+        if let Some(pos) = vault.accounts.iter().position(|a| a.id == account.id) {
+            vault.accounts[pos] = account; // Update
+        } else {
+            vault.accounts.push(account); // Add new
+        }
+
+        // Commit changes to disk instantly
+        update_vault(vault, dek, &state.file_path)?;
+        Ok(())
+    } else {
+        Err("Vault is locked. Cannot save.".to_string())
+    }
+}
+
+// --- MAIN THREAD ---
 fn main() {
-    // Initialize our empty state
     let state = AppState {
         vault: Mutex::new(None),
+        dek: Mutex::new(None),
         file_path: "raiz_vault.enc".to_string(),
     };
 
     tauri::Builder::default()
-        .manage(state) // Tell Tauri to manage this state
-        .invoke_handler(tauri::generate_handler![unlock_vault, lock_vault])
+        .manage(state)
+        .invoke_handler(tauri::generate_handler![
+            check_vault_exists,
+            create_vault,
+            unlock_vault,
+            lock_vault,
+            get_accounts,
+            save_account
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-/// Called by React to attempt to unlock the vault.
-#[tauri::command]
-fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
-    // 1. Check if the file exists. If not, we should probably create it.
-    if !std::path::Path::new(&state.file_path).exists() {
-        let empty_vault = Vault::new();
-        save_vault(
-            &empty_vault,
-            password,
-            "dummy phrase for now",
-            &state.file_path,
-        )
-        .map_err(|e| format!("Failed to create new vault: {}", e))?;
-    }
-
-    // 2. Attempt to load and decrypt the vault
-    match load_vault(password, &state.file_path) {
-        Ok(decrypted_vault) => {
-            // 3. If successful, acquire the Mutex lock and store the vault in RAM
-            let mut vault_state = state.vault.lock().unwrap();
-            *vault_state = Some(decrypted_vault);
-            Ok("Vault unlocked successfully".to_string())
-        }
-        Err(_) => {
-            // We intentionally do not pass the exact error to the frontend
-            // to prevent side-channel information leaks.
-            Err("Invalid Master Password or corrupted file.".to_string())
-        }
-    }
-}
-
-/// Called by React to explicitly wipe the vault from RAM.
-#[tauri::command]
-fn lock_vault(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut vault_state = state.vault.lock().unwrap();
-    // Zero out the vault in active memory
-    *vault_state = None;
-    Ok(())
 }

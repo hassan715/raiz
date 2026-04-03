@@ -78,7 +78,7 @@ pub fn save_vault(
 }
 
 /// Standard Load: Unlocks the vault using the Master Password (Box 1).
-pub fn load_vault(master_password: &str, file_path: &str) -> Result<Vault, String> {
+pub fn load_vault(master_password: &str, file_path: &str) -> Result<(Vault, [u8; 32]), String> {
     let mut file = File::open(file_path).map_err(|_| "Vault file not found".to_string())?;
     let mut file_bytes = Vec::new();
     file.read_to_end(&mut file_bytes)
@@ -98,11 +98,11 @@ pub fn load_vault(master_password: &str, file_path: &str) -> Result<Vault, Strin
     let decrypted_vault_bytes = decrypt(&dek, &envelope.vault_nonce, &envelope.encrypted_vault)?;
     let vault: Vault = rmp_serde::from_slice(&decrypted_vault_bytes).map_err(|e| e.to_string())?;
 
-    Ok(vault)
+    Ok((vault, dek))
 }
 
 /// Recovery Load: Unlocks the vault using the 24-Word Phrase (Box 2).
-pub fn recover_vault(recovery_phrase: &str, file_path: &str) -> Result<Vault, String> {
+pub fn recover_vault(recovery_phrase: &str, file_path: &str) -> Result<(Vault, [u8; 32]), String> {
     let mut file = File::open(file_path).map_err(|_| "Vault file not found".to_string())?;
     let mut file_bytes = Vec::new();
     file.read_to_end(&mut file_bytes)
@@ -127,7 +127,38 @@ pub fn recover_vault(recovery_phrase: &str, file_path: &str) -> Result<Vault, St
     let decrypted_vault_bytes = decrypt(&dek, &envelope.vault_nonce, &envelope.encrypted_vault)?;
     let vault: Vault = rmp_serde::from_slice(&decrypted_vault_bytes).map_err(|e| e.to_string())?;
 
-    Ok(vault)
+    Ok((vault, dek))
+}
+
+/// Updates the vault data on disk without needing the Master Password or Recovery Phrase.
+pub fn update_vault(vault: &Vault, dek: &[u8; 32], file_path: &str) -> Result<(), String> {
+    // 1. Read the existing envelope from disk
+    let mut file = File::open(file_path).map_err(|_| "Vault file not found".to_string())?;
+    let mut file_bytes = Vec::new();
+    file.read_to_end(&mut file_bytes)
+        .map_err(|e| e.to_string())?;
+
+    let mut envelope: VaultEnvelope = rmp_serde::from_slice(&file_bytes)
+        .map_err(|_| "Failed to parse vault file.".to_string())?;
+
+    // 2. Encrypt the updated Vault data using our cached DEK
+    let vault_bytes = rmp_serde::to_vec(vault).map_err(|e| e.to_string())?;
+    let (new_vault_nonce, new_encrypted_vault) = encrypt(dek, &vault_bytes)?;
+
+    // 3. Update ONLY the data portion of the envelope
+    envelope.vault_nonce = new_vault_nonce;
+    envelope.encrypted_vault = new_encrypted_vault;
+
+    // 4. Save the modified envelope back to disk
+    let new_file_bytes = rmp_serde::to_vec(&envelope).map_err(|e| e.to_string())?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(file_path)
+        .map_err(|e| e.to_string())?;
+    file.write_all(&new_file_bytes).map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 #[cfg(test)]
