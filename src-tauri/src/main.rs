@@ -8,7 +8,8 @@ mod storage;
 use crypto::generate_recovery_phrase;
 use models::{Account, Vault};
 use std::sync::Mutex;
-use storage::{load_vault, save_vault, update_vault};
+use storage::{load_vault, recover_vault, save_vault, update_vault};
+use uuid::Uuid;
 
 // --- ACTIVE MEMORY STATE ---
 struct AppState {
@@ -97,6 +98,53 @@ fn save_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(
     }
 }
 
+/// Unlocks the vault using the 24-word recovery phrase instead of the master password.
+#[tauri::command]
+fn unlock_with_recovery(phrase: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    match recover_vault(phrase, &state.file_path) {
+        Ok((decrypted_vault, decrypted_dek)) => {
+            *state.vault.lock().unwrap() = Some(decrypted_vault);
+            *state.dek.lock().unwrap() = Some(decrypted_dek);
+            // In the UI, we will prompt the user to immediately change their master password after this.
+            Ok("Vault recovered successfully.".to_string())
+        }
+        Err(_) => Err("Invalid recovery phrase.".to_string()),
+    }
+}
+
+/// Deletes a specific account from the vault and instantly updates the disk.
+#[tauri::command]
+fn delete_account(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut vault_guard = state.vault.lock().unwrap();
+    let dek_guard = state.dek.lock().unwrap();
+
+    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        vault.accounts.retain(|a| a.id != account_id);
+        update_vault(vault, dek, &state.file_path)?;
+        Ok(())
+    } else {
+        Err("Vault is locked.".to_string())
+    }
+}
+
+/// Changes the Master Password. Generates and returns a NEW 24-word recovery phrase.
+#[tauri::command]
+fn change_master_password(
+    new_password: &str,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let vault_guard = state.vault.lock().unwrap();
+
+    if let Some(vault) = vault_guard.as_ref() {
+        // We generate a new phrase so the old compromised paper backup is invalidated.
+        let new_phrase = generate_recovery_phrase();
+        save_vault(vault, new_password, &new_phrase, &state.file_path)?;
+        Ok(new_phrase)
+    } else {
+        Err("Vault is locked. Cannot change password.".to_string())
+    }
+}
+
 // --- MAIN THREAD ---
 fn main() {
     let state = AppState {
@@ -111,9 +159,12 @@ fn main() {
             check_vault_exists,
             create_vault,
             unlock_vault,
+            unlock_with_recovery,
             lock_vault,
             get_accounts,
-            save_account
+            save_account,
+            delete_account,
+            change_master_password
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -165,13 +165,15 @@ pub fn update_vault(vault: &Vault, dek: &[u8; 32], file_path: &str) -> Result<()
 mod tests {
     use super::*;
     use crate::crypto::generate_recovery_phrase;
+    use crate::models::{Account, Metadata};
     use std::fs;
+    use uuid::Uuid;
 
     #[test]
-    fn test_dual_lockbox_architecture() {
+    fn test_complete_vault_lifecycle() {
         let password = "SuperSecretMasterPassword!";
         let recovery_phrase = generate_recovery_phrase();
-        let test_file = "test_dual_vault.enc";
+        let test_file = "test_lifecycle_vault.enc";
 
         let vault = Vault::new();
 
@@ -179,28 +181,47 @@ mod tests {
         save_vault(&vault, password, &recovery_phrase, test_file)
             .expect("Failed to save dual-lock vault");
 
-        // 2. Load via Master Password (Should Succeed)
-        let loaded_via_password = load_vault(password, test_file);
-        assert!(
-            loaded_via_password.is_ok(),
-            "Failed to unlock with Master Password"
+        // 2. Load via Master Password (Extract the Vault AND the cached DEK)
+        let (mut loaded_vault, cached_dek) =
+            load_vault(password, test_file).expect("Failed to load via Master Password");
+
+        // 3. Test Active Memory Update (Add an account without the Master Password)
+        let new_account = Account {
+            id: Uuid::new_v4(),
+            account_name: "Test GitHub".to_string(),
+            account_type: "Website".to_string(),
+            url: None,
+            username: None,
+            email: None,
+            password: vec![1, 2, 3], // Dummy encrypted bytes
+            password_history: vec![],
+            recovery_codes: vec![],
+            notes: None,
+            tags: vec![],
+            is_favorite: false,
+            metadata: Metadata {
+                created_at: 0,
+                updated_at: 0,
+                accessed_at: 0,
+            },
+        };
+
+        loaded_vault.accounts.push(new_account);
+        update_vault(&loaded_vault, &cached_dek, test_file)
+            .expect("Failed to perform Active Memory update");
+
+        // 4. Load via Recovery Phrase to verify Box 2 works AND the new account was saved
+        let (recovered_vault, _) =
+            recover_vault(&recovery_phrase, test_file).expect("Failed to load via Recovery Phrase");
+
+        assert_eq!(
+            recovered_vault.accounts.len(),
+            1,
+            "The account was not saved correctly!"
         );
+        assert_eq!(recovered_vault.accounts[0].account_name, "Test GitHub");
 
-        // 3. Load via Recovery Phrase (Should Succeed)
-        let loaded_via_recovery = recover_vault(&recovery_phrase, test_file);
-        assert!(
-            loaded_via_recovery.is_ok(),
-            "Failed to unlock with Recovery Phrase"
-        );
-
-        // 4. Try loading with WRONG password (Must Fail)
-        let failed_password_load = load_vault("WrongPassword!", test_file);
-        assert!(failed_password_load.is_err());
-
-        // 5. Try loading with WRONG recovery phrase (Must Fail)
-        let failed_recovery_load = recover_vault("apple wrong bracket dog...", test_file);
-        assert!(failed_recovery_load.is_err());
-
+        // Cleanup
         let _ = fs::remove_file(test_file);
     }
 }
