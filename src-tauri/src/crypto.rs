@@ -9,7 +9,7 @@ use chacha20poly1305::{
 };
 
 use bip39::{Language, Mnemonic};
-use rand::RngCore;
+use rand::{seq::SliceRandom, RngCore};
 
 // Argon2id Parameters tuned for a desktop application.
 // This balances strong security against brute-force attacks with acceptable UX wait times.
@@ -89,6 +89,21 @@ pub fn generate_recovery_phrase() -> String {
 
     // The crate implements the standard Display trait to output the phrase string
     mnemonic.to_string()
+}
+
+/// Generates a cryptographically secure random password.
+pub fn generate_password(length: usize, include_symbols: bool) -> String {
+    let mut chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        .chars()
+        .collect();
+    if include_symbols {
+        chars.extend("!@#$%^&*()-_=+[]{}|;:,.<>?".chars());
+    }
+
+    // OsRng guarantees cryptographic-level randomness, unlike standard Math.random()
+    (0..length)
+        .map(|_| *chars.choose(&mut OsRng).unwrap())
+        .collect()
 }
 
 #[cfg(test)]
@@ -171,5 +186,37 @@ mod tests {
 
         // Assertion: The Poly1305 math MUST catch the tampering and return an error.
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_password_generation_length() {
+        let pw = generate_password(16, true);
+        assert_eq!(pw.len(), 16, "Password should be exactly 16 characters");
+
+        let pw_long = generate_password(128, false);
+        assert_eq!(pw_long.len(), 128, "Password should handle large lengths");
+    }
+
+    #[test]
+    fn test_password_generation_randomness() {
+        let pw1 = generate_password(20, true);
+        let pw2 = generate_password(20, true);
+
+        // The mathematical probability of generating the exact same 20-character
+        // secure password twice in a row is astronomically low.
+        assert_ne!(pw1, pw2, "Generator should produce unique passwords");
+    }
+
+    #[test]
+    fn test_password_generation_symbols() {
+        let no_symbols_pw = generate_password(50, false);
+        let symbols = "!@#$%^&*()-_=+[]{}|;:,.<>?";
+
+        for ch in no_symbols_pw.chars() {
+            assert!(
+                !symbols.contains(ch),
+                "Password should NOT contain symbols when false"
+            );
+        }
     }
 }

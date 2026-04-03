@@ -5,7 +5,7 @@ mod crypto;
 mod models;
 mod storage;
 
-use crypto::generate_recovery_phrase;
+use crypto::{generate_password, generate_recovery_phrase};
 use models::{Account, Vault};
 use std::sync::Mutex;
 use storage::{load_vault, recover_vault, save_vault, update_vault};
@@ -145,6 +145,12 @@ fn change_master_password(
     }
 }
 
+/// Generates a secure password for the UI to display and use.
+#[tauri::command]
+fn generate_secure_password(length: usize, include_symbols: bool) -> String {
+    generate_password(length, include_symbols)
+}
+
 // --- MAIN THREAD ---
 fn main() {
     let state = AppState {
@@ -164,7 +170,8 @@ fn main() {
             get_accounts,
             save_account,
             delete_account,
-            change_master_password
+            change_master_password,
+            generate_secure_password
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
