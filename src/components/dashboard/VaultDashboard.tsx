@@ -1,26 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Search, Plus, Globe, Key, ShieldAlert } from 'lucide-react';
+import { Search, Plus, Key, ShieldAlert, Star } from 'lucide-react';
 import { Account } from '../../types';
+import VaultItemForm from './VaultItemForm';
+import BrandIcon from './BrandIcon';
 
 export default function VaultDashboard() {
+  const [isCreating, setIsCreating] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch accounts from the active memory in Rust
-  useEffect(() => {
-    async function loadAccounts() {
-      try {
-        const data = await invoke<Account[]>('get_accounts');
-        setAccounts(data);
-      } catch (err: any) {
-        setError(err.toString());
-      } finally {
-        setIsLoading(false);
-      }
+  const loadAccounts = async () => {
+    setIsLoading(true);
+    try {
+      const data = await invoke<Account[]>('get_accounts');
+      setAccounts(data);
+    } catch (err: any) {
+      setError(err.toString());
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  useEffect(() => {
     loadAccounts();
   }, []);
 
@@ -28,15 +32,23 @@ export default function VaultDashboard() {
   const filteredAccounts = accounts.filter(acc => 
     acc.account_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     acc.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    acc.email?.toLowerCase().includes(searchQuery.toLowerCase())
+    acc.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    acc.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())) // Search tags too!
   );
 
+  // Split into Favorites and Regular accounts
+  const favoriteAccounts = filteredAccounts.filter(acc => acc.is_favorite);
+  const regularAccounts = filteredAccounts.filter(acc => !acc.is_favorite);
+
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col h-full bg-background relative">
       {/* Top Header & Action Bar */}
       <header className="flex items-center justify-between px-8 py-6 border-b border-border">
         <h2 className="text-2xl font-bold text-text-main tracking-tight">All Vaults</h2>
-        <button className="flex items-center px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors shadow-sm">
+        <button 
+          onClick={() => setIsCreating(true)}
+          className="flex items-center px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors shadow-sm"
+        >
           <Plus className="w-4 h-4 mr-2" />
           New Item
         </button>
@@ -48,7 +60,7 @@ export default function VaultDashboard() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
           <input
             type="text"
-            placeholder="Search accounts, usernames, or emails..."
+            placeholder="Search accounts, usernames, tags, or emails..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-md text-sm text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
@@ -77,31 +89,85 @@ export default function VaultDashboard() {
             </p>
           </div>
         ) : (
-          /* The Account Grid/List */
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredAccounts.map((account) => (
-              <div 
-                key={account.id} 
-                className="group p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-background border border-border rounded-lg flex items-center justify-center text-text-muted group-hover:text-primary transition-colors">
-                      <Globe className="w-5 h-5" />
+          <div className="space-y-8">
+            
+            {/* Favorites Section */}
+            {favoriteAccounts.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-4">Favorites</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {favoriteAccounts.map((account) => (
+                    <div 
+                      key={account.id} 
+                      className="group relative p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
+                    >
+                      {/* Golden Star Indicator */}
+                      <Star className="absolute top-3 right-3 w-4 h-4 text-warning fill-warning opacity-80" />
+                      
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 bg-background border border-border rounded-lg flex items-center justify-center text-text-muted group-hover:text-primary transition-colors overflow-hidden">
+                            {/* We pass useBrandColor=false by default to keep the clean, unified dark mode look, 
+                            but you can flip it to true if you want colorful logos! */}
+                            <BrandIcon name={account.account_name} className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-semibold text-text-main pr-6">{account.account_name}</h3>
+                            <p className="text-xs text-text-muted truncate max-w-[150px]">
+                              {account.username || account.email || account.account_type}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-sm font-semibold text-text-main">{account.account_name}</h3>
-                      <p className="text-xs text-text-muted truncate max-w-[150px]">
-                        {account.username || account.email || 'No username'}
-                      </p>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
-            ))}
+            )}
+
+            {/* All Items Section */}
+            {regularAccounts.length > 0 && (
+              <div>
+                {favoriteAccounts.length > 0 && (
+                  <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-4">All Items</h3>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {regularAccounts.map((account) => (
+                    <div 
+                      key={account.id} 
+                      className="group p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="w-10 h-10 bg-background border border-border rounded-lg flex items-center justify-center text-text-muted group-hover:text-primary transition-colors overflow-hidden">
+                            {/* We pass useBrandColor=false by default to keep the clean, unified dark mode look, 
+                            but you can flip it to true if you want colorful logos! */}
+                            <BrandIcon name={account.account_name} className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-semibold text-text-main">{account.account_name}</h3>
+                            <p className="text-xs text-text-muted truncate max-w-[150px]">
+                              {account.username || account.email || account.account_type}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </div>
         )}
       </div>
+
+      {/* Slide-out Form Panel */}
+      <VaultItemForm 
+        isOpen={isCreating} 
+        onClose={() => setIsCreating(false)} 
+        onSaved={loadAccounts} 
+      />
     </div>
   );
 }

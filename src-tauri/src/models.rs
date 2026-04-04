@@ -7,6 +7,15 @@ pub struct Vault {
     pub accounts: Vec<Account>,
 }
 
+impl Vault {
+    /// Creates a completely empty, initialized vault.
+    pub fn new() -> Self {
+        Self {
+            accounts: Vec::new(),
+        }
+    }
+}
+
 /// Represents a single saved credential (e.g., GitHub, Gmail, Instagram).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Account {
@@ -18,6 +27,7 @@ pub struct Account {
     pub email: Option<String>,
     pub password: Vec<u8>, // Stored as encrypted bytes, not a plain string!
     pub password_history: Vec<Vec<u8>>,
+    pub has_2fa: bool, // NEW: Track if 2FA is enabled
     pub recovery_codes: Vec<RecoveryCode>,
     pub notes: Option<Vec<u8>>, // Encrypted bytes
     pub tags: Vec<String>,
@@ -29,7 +39,7 @@ pub struct Account {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RecoveryCode {
     pub code: Vec<u8>, // Encrypted bytes
-    pub is_used: bool,
+    pub is_used: bool, // Restored your original naming
 }
 
 /// Tracks the lifecycle of the account entry.
@@ -38,13 +48,4 @@ pub struct Metadata {
     pub created_at: u64, // Unix timestamp
     pub updated_at: u64,
     pub accessed_at: u64,
-}
-
-impl Vault {
-    /// Creates a completely empty, initialized vault.
-    pub fn new() -> Self {
-        Self {
-            accounts: Vec::new(),
-        }
-    }
 }
