@@ -1,15 +1,15 @@
 import React from 'react';
 import { useVault } from '../../context/VaultContext';
 import { Shield } from 'lucide-react';
+import SetupForm from './SetupForm'; // 1. Import it
 
 interface GatewayProps {
-  children: React.ReactNode; // This will be the AppShell
+  children: React.ReactNode;
 }
 
 export default function Gateway({ children }: GatewayProps) {
   const { status } = useVault();
 
-  // State 1: Booting up
   if (status === 'LOADING') {
     return (
       <div className="h-screen w-full bg-background flex flex-col items-center justify-center text-text-muted">
@@ -19,24 +19,19 @@ export default function Gateway({ children }: GatewayProps) {
     );
   }
 
-  // State 2: First Time Setup
+  // 2. Replace the placeholder with the real form
   if (status === 'SETUP') {
     return (
-      <div className="h-screen w-full bg-background flex items-center justify-center text-text-main">
-        {/* Placeholder for the Create Password Form */}
-        <div className="p-8 bg-surface border border-border rounded-lg text-center">
-          <h2 className="text-xl font-bold mb-2">Welcome to Raiz</h2>
-          <p className="text-text-muted">Create a Master Password to begin.</p>
-        </div>
+      <div className="h-screen w-full bg-background flex items-center justify-center p-4">
+        <SetupForm />
       </div>
     );
   }
 
-  // State 3: Locked Out
   if (status === 'LOCKED') {
     return (
       <div className="h-screen w-full bg-background flex items-center justify-center text-text-main">
-        {/* Placeholder for the Login Form */}
+        {/* We will build LoginForm next! */}
         <div className="p-8 bg-surface border border-border rounded-lg text-center">
           <h2 className="text-xl font-bold mb-2">Vault is Locked</h2>
           <p className="text-text-muted">Enter your Master Password.</p>
@@ -45,6 +40,5 @@ export default function Gateway({ children }: GatewayProps) {
     );
   }
 
-  // State 4: Unlocked (Render the actual application)
   return <>{children}</>;
 }
