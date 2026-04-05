@@ -4,9 +4,12 @@ import { Search, Plus, Key, ShieldAlert, Star } from 'lucide-react';
 import { Account } from '../../types';
 import VaultItemForm from './VaultItemForm';
 import BrandIcon from './BrandIcon';
+import VaultItemDetail from './VaultItemDetail';
 
 export default function VaultDashboard() {
   const [isCreating, setIsCreating] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -98,9 +101,10 @@ export default function VaultDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {favoriteAccounts.map((account) => (
                     <div 
-                      key={account.id} 
-                      className="group relative p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
-                    >
+                        key={account.id} 
+                        onClick={() => setSelectedAccount(account)} // Add this line!
+                        className="group relative p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
+                        >
                       {/* Golden Star Indicator */}
                       <Star className="absolute top-3 right-3 w-4 h-4 text-warning fill-warning opacity-80" />
                       
@@ -134,9 +138,10 @@ export default function VaultDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {regularAccounts.map((account) => (
                     <div 
-                      key={account.id} 
-                      className="group p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
-                    >
+                        key={account.id} 
+                        onClick={() => setSelectedAccount(account)} // Add this line!
+                        className="group relative p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
+                        >
                       <div className="flex items-start justify-between">
                         <div className="flex items-center space-x-3">
                           <div className="w-10 h-10 bg-background border border-border rounded-lg flex items-center justify-center text-text-muted group-hover:text-primary transition-colors overflow-hidden">
@@ -162,11 +167,38 @@ export default function VaultDashboard() {
         )}
       </div>
 
-      {/* Slide-out Form Panel */}
+      {/* Slide-out Form Panel (Handles both Create and Edit) */}
       <VaultItemForm 
-        isOpen={isCreating} 
-        onClose={() => setIsCreating(false)} 
+        isOpen={isCreating || !!editingAccount} 
+        initialData={editingAccount}
+        onClose={() => {
+          setIsCreating(false);
+          setEditingAccount(null);
+        }} 
         onSaved={loadAccounts} 
+      />
+
+      {/* Slide-out Detail Panel for Viewing */}
+      <VaultItemDetail
+        account={selectedAccount}
+        onClose={() => setSelectedAccount(null)}
+        onDeleted={() => {
+          setSelectedAccount(null);
+          loadAccounts();
+        }}
+        onUpdated={() => {
+          // Refresh the grid behind the panel, and update the panel's data
+          loadAccounts(); 
+          // Re-fetch the selected account from the updated list to refresh the panel
+          invoke<Account[]>('get_accounts').then(data => {
+            const updated = data.find(a => a.id === selectedAccount?.id);
+            if (updated) setSelectedAccount(updated);
+          });
+        }}
+        onEditRequest={(acc) => {
+          setSelectedAccount(null); // Close detail view
+          setEditingAccount(acc);   // Open edit form
+        }}
       />
     </div>
   );

@@ -8,9 +8,10 @@ interface VaultItemFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSaved: () => void;
+  initialData?: Account | null;
 }
 
-export default function VaultItemForm({ isOpen, onClose, onSaved }: VaultItemFormProps) {
+export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }: VaultItemFormProps) {
   // --- 1. Core Identification State ---
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState('Login');
@@ -38,6 +39,34 @@ export default function VaultItemForm({ isOpen, onClose, onSaved }: VaultItemFor
   const [suggestions, setSuggestions] = useState<ServiceTemplate[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Pre-fill form if we are in Edit Mode
+  useEffect(() => {
+    if (initialData && isOpen) {
+      setName(initialData.account_name);
+      setAccountType(initialData.account_type);
+      setIsFavorite(initialData.is_favorite);
+      setUsername(initialData.username || '');
+      setEmail(initialData.email || '');
+      setUrl(initialData.url || '');
+      // Decode bytes back to strings for the form
+      setPassword(initialData.password ? new TextDecoder().decode(new Uint8Array(initialData.password)) : '');
+      setNotes(initialData.notes ? new TextDecoder().decode(new Uint8Array(initialData.notes)) : '');
+      setTagsInput(initialData.tags.join(', '));
+      setHas2FA(initialData.has_2fa);
+      
+      // Map recovery codes back to a readable text block
+      if (initialData.recovery_codes) {
+        const mappedCodes = initialData.recovery_codes.map(rc => new TextDecoder().decode(new Uint8Array(rc.code))).join(', ');
+        setRecoveryCodesInput(mappedCodes);
+      }
+    } else if (isOpen) {
+      // If opening fresh, clear everything
+      setName(''); setAccountType('Login'); setIsFavorite(false); setTagsInput('');
+      setUsername(''); setEmail(''); setUrl(''); setPassword('');
+      setNotes(''); setHas2FA(false); setRecoveryCodesInput('');
+    }
+  }, [initialData, isOpen]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -121,7 +150,7 @@ export default function VaultItemForm({ isOpen, onClose, onSaved }: VaultItemFor
 
       // Construct the exact object Rust expects
       const newAccount: Account = {
-        id: crypto.randomUUID(),
+        id: initialData ? initialData.id : crypto.randomUUID(),
         account_name: name,
         account_type: accountType,
         url: url || null,
