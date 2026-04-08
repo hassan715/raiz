@@ -1,0 +1,99 @@
+name: Tests & Security
+
+on:
+  push:
+    branches:
+      - dev
+      - master
+  pull_request:
+    branches:
+      - dev
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Set Node.js version
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Frontend Dependencies
+        run: npm install
+
+      # Checks for vulnerable npm packages
+      - name: NPM Security Audit
+        run: npm audit --audit-level=high
+
+      # Checks TypeScript for strict type errors without building
+      - name: Frontend Type Check
+        run: npx tsc --noEmit
+
+      # Checks React code for bad practices, unused variables, and hook rules
+      - name: Frontend Lint (React)
+        run: npm run lint
+
+      # Checks Rust code for memory leaks, unused variables, and bad practices
+      - name: Rust Clippy (Linter)
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+      # Ensures Rust code is formatted perfectly
+      - name: Rust Format Check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+  test-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies (Ubuntu only)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      # Installs the coverage generator for Rust
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      # Runs your Rust tests (vital for verifying your encryption algorithms later!)
+      - name: Run Backend Unit Tests (Rust)
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      # --- FUTURE FRONTEND TESTS ---
+      # Once you write Vitest/Jest tests, uncomment these lines.
+      # It will generate a coverage/lcov.info or coverage-final.json file.
+      # - name: Run Frontend Tests
+      #   run: npm run test:unit -- --coverage
+
+      # CodeCov automatically merges multiple languages! Just pass both files in the `files` array.
+      - name: CodeCov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: rust-backend
+          # When you add frontend tests, change this to: files: cobertura.xml, coverage/lcov.info
+          files: cobertura.xml
+          fail_ci_if_error: true
