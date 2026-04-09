@@ -48,6 +48,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 }
 
 // Custom hook so any component can easily grab the vault state
+// eslint-disable-next-line react-refresh/only-export-components
 export function useVault() {
   const context = useContext(VaultContext);
   if (context === undefined) {

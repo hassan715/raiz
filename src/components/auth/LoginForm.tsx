@@ -22,7 +22,8 @@ export default function LoginForm() {
 
       // 2. If it succeeds without throwing an error, we let the user in
       setStatus('UNLOCKED');
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       // 3. If Rust fails (wrong password or corrupted file), we show the error
       setError(err.toString() || 'Invalid Master Password');
       setPassword(''); // Clear the field for safety

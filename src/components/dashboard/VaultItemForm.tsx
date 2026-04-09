@@ -127,7 +127,8 @@ export default function VaultItemForm({
       });
       setPassword(newPassword);
       setShowPassword(true);
-    } catch (err: any) {
+    } catch {
+      //const err = error as Error;
       setError('Failed to generate password');
     } finally {
       setIsGenerating(false);
@@ -204,7 +205,8 @@ export default function VaultItemForm({
 
       onSaved();
       onClose();
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       setError(err.toString() || 'Failed to save account');
     } finally {
       setIsSaving(false);

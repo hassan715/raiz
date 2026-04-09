@@ -37,7 +37,8 @@ export default function SetupForm() {
 
       // 2. Display the phrase to the user
       setRecoveryPhrase(phrase);
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       setError(err.toString());
     } finally {
       setIsProcessing(false);

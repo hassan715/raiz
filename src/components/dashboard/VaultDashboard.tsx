@@ -20,7 +20,8 @@ export default function VaultDashboard() {
     try {
       const data = await invoke<Account[]>('get_accounts');
       setAccounts(data);
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       setError(err.toString());
     } finally {
       setIsLoading(false);
