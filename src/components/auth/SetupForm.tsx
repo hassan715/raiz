@@ -5,14 +5,14 @@ import { Key, Eye, EyeOff, AlertTriangle, ShieldCheck, Copy, CheckCircle2 } from
 
 export default function SetupForm() {
   const { setStatus } = useVault();
-  
+
   // Form State
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  
+
   // Recovery State
   const [recoveryPhrase, setRecoveryPhrase] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -34,7 +34,7 @@ export default function SetupForm() {
     try {
       // 1. Tell Rust to mathematically generate the vault and KEK/DEK
       const phrase = await invoke<string>('create_vault', { password });
-      
+
       // 2. Display the phrase to the user
       setRecoveryPhrase(phrase);
     } catch (err: any) {
@@ -67,7 +67,8 @@ export default function SetupForm() {
           </div>
           <h2 className="text-xl font-bold text-text-main">Emergency Recovery Phrase</h2>
           <p className="text-sm text-text-muted mt-2">
-            If you forget your Master Password, this 24-word phrase is the <b>only</b> way to recover your vault. We cannot reset it for you.
+            If you forget your Master Password, this 24-word phrase is the <b>only</b> way to
+            recover your vault. We cannot reset it for you.
           </p>
         </div>
 
@@ -75,12 +76,16 @@ export default function SetupForm() {
           <p className="font-mono text-sm leading-relaxed text-text-main break-words">
             {recoveryPhrase}
           </p>
-          <button 
+          <button
             onClick={copyToClipboard}
             className="absolute top-2 right-2 p-2 bg-surface border border-border rounded-md text-text-muted hover:text-text-main transition-colors"
             title="Copy to clipboard"
           >
-            {copied ? <CheckCircle2 className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
+            {copied ? (
+              <CheckCircle2 className="w-4 h-4 text-success" />
+            ) : (
+              <Copy className="w-4 h-4" />
+            )}
           </button>
         </div>
 
@@ -88,8 +93,7 @@ export default function SetupForm() {
           onClick={handleFinishSetup}
           className="w-full py-3 px-4 bg-primary text-white rounded-lg font-medium hover:bg-primary-hover transition-colors flex items-center justify-center"
         >
-          <ShieldCheck className="w-5 h-5 mr-2" />
-          I have safely stored this phrase
+          <ShieldCheck className="w-5 h-5 mr-2" />I have safely stored this phrase
         </button>
       </div>
     );
