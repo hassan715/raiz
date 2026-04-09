@@ -80,7 +80,7 @@ jobs:
 
       # Runs your Rust tests (vital for verifying your encryption algorithms later!)
       - name: Run Backend Unit Tests (Rust)
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo tarpaulin --manifest-path src-tauri/Cargo.toml --out Xml
 
       # --- FUTURE FRONTEND TESTS ---
       # Once you write Vitest/Jest tests, uncomment these lines.
