@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { X, Save, RefreshCw, Eye, EyeOff, Loader2, Globe, Star } from 'lucide-react';
 import { Account } from '../../types';

@@ -199,6 +199,7 @@ mod tests {
             notes: None,
             tags: vec![],
             is_favorite: false,
+            has_2fa: false,
             metadata: Metadata {
                 created_at: 0,
                 updated_at: 0,

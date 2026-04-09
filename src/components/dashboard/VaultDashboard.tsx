@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Search, Plus, Key, ShieldAlert, Star } from 'lucide-react';
 import { Account } from '../../types';
@@ -115,7 +115,7 @@ export default function VaultDashboard() {
                       <div className="flex items-start justify-between">
                         <div className="flex items-center space-x-3">
                           <div className="w-10 h-10 bg-background border border-border rounded-lg flex items-center justify-center text-text-muted group-hover:text-primary transition-colors overflow-hidden">
-                            {/* We pass useBrandColor=false by default to keep the clean, unified dark mode look, 
+                            {/* We pass useBrandColor=false by default to keep the clean, unified dark mode look,
                             but you can flip it to true if you want colorful logos! */}
                             <BrandIcon name={account.account_name} className="w-5 h-5" />
                           </div>
@@ -153,7 +153,7 @@ export default function VaultDashboard() {
                       <div className="flex items-start justify-between">
                         <div className="flex items-center space-x-3">
                           <div className="w-10 h-10 bg-background border border-border rounded-lg flex items-center justify-center text-text-muted group-hover:text-primary transition-colors overflow-hidden">
-                            {/* We pass useBrandColor=false by default to keep the clean, unified dark mode look, 
+                            {/* We pass useBrandColor=false by default to keep the clean, unified dark mode look,
                             but you can flip it to true if you want colorful logos! */}
                             <BrandIcon name={account.account_name} className="w-5 h-5" />
                           </div>
