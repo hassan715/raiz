@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { X, Save, RefreshCw, Eye, EyeOff, Loader2, Globe, Star } from 'lucide-react';
 import { Account } from '../../types';
@@ -11,7 +11,12 @@ interface VaultItemFormProps {
   initialData?: Account | null;
 }
 
-export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }: VaultItemFormProps) {
+export default function VaultItemForm({
+  isOpen,
+  onClose,
+  onSaved,
+  initialData,
+}: VaultItemFormProps) {
   // --- 1. Core Identification State ---
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState('Login');
@@ -23,12 +28,12 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
   const [email, setEmail] = useState('');
   const [url, setUrl] = useState('');
   const [password, setPassword] = useState('');
-  
+
   // --- 3. Advanced Security State ---
   const [notes, setNotes] = useState('');
   const [has2FA, setHas2FA] = useState(false);
   const [recoveryCodesInput, setRecoveryCodesInput] = useState('');
-  
+
   // --- 4. UI Status State ---
   const [showPassword, setShowPassword] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -50,21 +55,35 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
       setEmail(initialData.email || '');
       setUrl(initialData.url || '');
       // Decode bytes back to strings for the form
-      setPassword(initialData.password ? new TextDecoder().decode(new Uint8Array(initialData.password)) : '');
-      setNotes(initialData.notes ? new TextDecoder().decode(new Uint8Array(initialData.notes)) : '');
+      setPassword(
+        initialData.password ? new TextDecoder().decode(new Uint8Array(initialData.password)) : ''
+      );
+      setNotes(
+        initialData.notes ? new TextDecoder().decode(new Uint8Array(initialData.notes)) : ''
+      );
       setTagsInput(initialData.tags.join(', '));
       setHas2FA(initialData.has_2fa);
-      
+
       // Map recovery codes back to a readable text block
       if (initialData.recovery_codes) {
-        const mappedCodes = initialData.recovery_codes.map(rc => new TextDecoder().decode(new Uint8Array(rc.code))).join(', ');
+        const mappedCodes = initialData.recovery_codes
+          .map((rc) => new TextDecoder().decode(new Uint8Array(rc.code)))
+          .join(', ');
         setRecoveryCodesInput(mappedCodes);
       }
     } else if (isOpen) {
       // If opening fresh, clear everything
-      setName(''); setAccountType('Login'); setIsFavorite(false); setTagsInput('');
-      setUsername(''); setEmail(''); setUrl(''); setPassword('');
-      setNotes(''); setHas2FA(false); setRecoveryCodesInput('');
+      setName('');
+      setAccountType('Login');
+      setIsFavorite(false);
+      setTagsInput('');
+      setUsername('');
+      setEmail('');
+      setUrl('');
+      setPassword('');
+      setNotes('');
+      setHas2FA(false);
+      setRecoveryCodesInput('');
     }
   }, [initialData, isOpen]);
 
@@ -81,9 +100,9 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setName(val);
-    
+
     if (val.length > 0) {
-      const filtered = popularServices.filter(service => 
+      const filtered = popularServices.filter((service) =>
         service.name.toLowerCase().includes(val.toLowerCase())
       );
       setSuggestions(filtered.slice(0, 5));
@@ -102,11 +121,15 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
   const generatePassword = async () => {
     setIsGenerating(true);
     try {
-      const newPassword = await invoke<string>('generate_secure_password', { length: 16, includeSymbols: true });
+      const newPassword = await invoke<string>('generate_secure_password', {
+        length: 16,
+        includeSymbols: true,
+      });
       setPassword(newPassword);
       setShowPassword(true);
-    } catch (err: any) {
-      setError("Failed to generate password");
+    } catch {
+      //const err = error as Error;
+      setError('Failed to generate password');
     } finally {
       setIsGenerating(false);
     }
@@ -115,7 +138,7 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !password) {
-      setError("Name and Password are required.");
+      setError('Name and Password are required.');
       return;
     }
 
@@ -130,23 +153,22 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
       // Encode Recovery Codes to Bytes securely
       const parsedCodes = recoveryCodesInput
         .split(/[\n,]+/)
-        .map(code => code.trim())
-        .filter(code => code.length > 0)
-        .map(code => ({ 
-           code: Array.from(new TextEncoder().encode(code)), 
-           is_used: false 
+        .map((code) => code.trim())
+        .filter((code) => code.length > 0)
+        .map((code) => ({
+          code: Array.from(new TextEncoder().encode(code)),
+          is_used: false,
         }));
 
       // Encode Secure Notes to Bytes securely
-      const notesBytes = notes.trim().length > 0 
-        ? Array.from(new TextEncoder().encode(notes)) 
-        : null;
+      const notesBytes =
+        notes.trim().length > 0 ? Array.from(new TextEncoder().encode(notes)) : null;
 
       // Parse Tags
       const tagsArray = tagsInput
         .split(',')
-        .map(tag => tag.trim())
-        .filter(tag => tag.length > 0);
+        .map((tag) => tag.trim())
+        .filter((tag) => tag.length > 0);
 
       // Construct the exact object Rust expects
       const newAccount: Account = {
@@ -167,16 +189,25 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
       };
 
       await invoke('save_account', { account: newAccount });
-      
+
       // Clear form completely on success
-      setName(''); setAccountType('Login'); setIsFavorite(false); setTagsInput('');
-      setUsername(''); setEmail(''); setUrl(''); setPassword('');
-      setNotes(''); setHas2FA(false); setRecoveryCodesInput('');
-      
+      setName('');
+      setAccountType('Login');
+      setIsFavorite(false);
+      setTagsInput('');
+      setUsername('');
+      setEmail('');
+      setUrl('');
+      setPassword('');
+      setNotes('');
+      setHas2FA(false);
+      setRecoveryCodesInput('');
+
       onSaved();
       onClose();
-    } catch (err: any) {
-      setError(err.toString() || "Failed to save account");
+    } catch (error) {
+      const err = error as Error;
+      setError(err.toString() || 'Failed to save account');
     } finally {
       setIsSaving(false);
     }
@@ -186,22 +217,27 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
 
   return (
     <>
-      <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 transition-opacity" onClick={onClose} />
+      <div
+        className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 transition-opacity"
+        onClick={onClose}
+      />
 
       <div className="fixed inset-y-0 right-0 w-full max-w-md bg-surface border-l border-border shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
-        
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-lg font-semibold text-text-main">New Item</h2>
           <div className="flex items-center space-x-2">
-            <button 
+            <button
               onClick={() => setIsFavorite(!isFavorite)}
               className={`p-2 rounded-md transition-colors ${isFavorite ? 'text-warning bg-warning/10' : 'text-text-muted hover:bg-background hover:text-text-main'}`}
               title="Toggle Favorite"
             >
               <Star className="w-5 h-5" fill={isFavorite ? 'currentColor' : 'none'} />
             </button>
-            <button onClick={onClose} className="p-2 text-text-muted hover:text-text-main rounded-md hover:bg-background transition-colors">
+            <button
+              onClick={onClose}
+              className="p-2 text-text-muted hover:text-text-main rounded-md hover:bg-background transition-colors"
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -210,27 +246,30 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
         {/* Scrollable Form Body */}
         <div className="flex-1 overflow-y-auto p-6">
           <form id="vault-form" onSubmit={handleSave} className="space-y-5">
-            
             {/* Classification Section */}
             <div className="space-y-4">
               <div className="relative" ref={dropdownRef}>
-                <label className="block text-sm font-medium text-text-muted mb-1">Item Name *</label>
+                <label className="block text-sm font-medium text-text-muted mb-1">
+                  Item Name *
+                </label>
                 <input
                   type="text"
                   value={name}
                   onChange={handleNameChange}
-                  onFocus={() => name.length > 0 && suggestions.length > 0 && setShowSuggestions(true)}
+                  onFocus={() =>
+                    name.length > 0 && suggestions.length > 0 && setShowSuggestions(true)
+                  }
                   placeholder="e.g. GitHub, Amazon, Gmail"
                   className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors"
                   autoComplete="off"
                   autoFocus
                 />
-                
+
                 {showSuggestions && suggestions.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-surface border border-border rounded-md shadow-lg overflow-hidden animate-in fade-in slide-in-from-top-1">
                     <ul className="py-1">
                       {suggestions.map((service, index) => (
-                        <li 
+                        <li
                           key={index}
                           onClick={() => selectService(service)}
                           className="px-3 py-2 cursor-pointer hover:bg-primary-muted transition-colors flex items-center"
@@ -269,32 +308,69 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-text-muted mb-1">Username</label>
-                <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors" />
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors"
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-text-muted mb-1">Email</label>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors"
+                />
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-sm font-medium text-text-muted">Password *</label>
-                  <button type="button" onClick={generatePassword} disabled={isGenerating} className="text-xs font-medium text-primary hover:text-primary-hover flex items-center">
-                    {isGenerating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />} Generate Secure
+                  <button
+                    type="button"
+                    onClick={generatePassword}
+                    disabled={isGenerating}
+                    className="text-xs font-medium text-primary hover:text-primary-hover flex items-center"
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                    )}{' '}
+                    Generate Secure
                   </button>
                 </div>
                 <div className="relative">
-                  <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-3 pr-10 py-2 bg-background border border-border rounded-md text-text-main font-mono focus:outline-none focus:border-primary transition-colors" />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-2 top-2 text-text-muted hover:text-text-main">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-3 pr-10 py-2 bg-background border border-border rounded-md text-text-main font-mono focus:outline-none focus:border-primary transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2 top-2 text-text-muted hover:text-text-main"
+                  >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">Website URL</label>
-                <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors" />
+                <label className="block text-sm font-medium text-text-muted mb-1">
+                  Website URL
+                </label>
+                <input
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors"
+                />
               </div>
             </div>
 
@@ -308,15 +384,24 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
                   <p className="text-xs text-text-muted">Is 2FA enabled on this service?</p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" checked={has2FA} onChange={(e) => setHas2FA(e.target.checked)} className="sr-only peer" />
+                  <input
+                    type="checkbox"
+                    checked={has2FA}
+                    onChange={(e) => setHas2FA(e.target.checked)}
+                    className="sr-only peer"
+                  />
                   <div className="w-11 h-6 bg-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-surface after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-text-main after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
                 </label>
               </div>
 
               {has2FA && (
                 <div className="animate-in fade-in slide-in-from-top-2">
-                  <label className="block text-sm font-medium text-text-muted mb-1">Backup Recovery Codes</label>
-                  <p className="text-xs text-text-muted mb-2">Paste codes separated by commas or newlines.</p>
+                  <label className="block text-sm font-medium text-text-muted mb-1">
+                    Backup Recovery Codes
+                  </label>
+                  <p className="text-xs text-text-muted mb-2">
+                    Paste codes separated by commas or newlines.
+                  </p>
                   <textarea
                     value={recoveryCodesInput}
                     onChange={(e) => setRecoveryCodesInput(e.target.value)}
@@ -344,7 +429,9 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">Secure Notes</label>
+                <label className="block text-sm font-medium text-text-muted mb-1">
+                  Secure Notes
+                </label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
@@ -365,11 +452,22 @@ export default function VaultItemForm({ isOpen, onClose, onSaved, initialData }:
 
         {/* Footer */}
         <div className="p-6 border-t border-border bg-background">
-          <button type="submit" form="vault-form" disabled={isSaving || !name || !password} className="w-full flex items-center justify-center px-4 py-2 bg-primary text-white font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
-            {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Save className="w-4 h-4 mr-2" />Save Item</>}
+          <button
+            type="submit"
+            form="vault-form"
+            disabled={isSaving || !name || !password}
+            className="w-full flex items-center justify-center px-4 py-2 bg-primary text-white font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+          >
+            {isSaving ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                Save Item
+              </>
+            )}
           </button>
         </div>
-
       </div>
     </>
   );

@@ -22,9 +22,9 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         const exists = await invoke<boolean>('check_vault_exists');
         setStatus(exists ? 'LOCKED' : 'SETUP');
       } catch (error) {
-        console.error("Failed to check vault status:", error);
+        console.error('Failed to check vault status:', error);
         // Default to locked for safety if something goes wrong
-        setStatus('LOCKED'); 
+        setStatus('LOCKED');
       }
     }
     checkVault();
@@ -34,9 +34,9 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const lockVault = async () => {
     try {
       await invoke('lock_vault'); // Tell Rust to wipe the DEK from RAM
-      setStatus('LOCKED');        // Tell React to show the login screen
+      setStatus('LOCKED'); // Tell React to show the login screen
     } catch (error) {
-      console.error("Failed to lock vault:", error);
+      console.error('Failed to lock vault:', error);
     }
   };
 
@@ -48,6 +48,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 }
 
 // Custom hook so any component can easily grab the vault state
+// eslint-disable-next-line react-refresh/only-export-components
 export function useVault() {
   const context = useContext(VaultContext);
   if (context === undefined) {

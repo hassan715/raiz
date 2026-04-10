@@ -1,11 +1,8 @@
-import AppShell from "./components/layout/AppShell";
-import Gateway from "./components/auth/Gateway";
-import VaultDashboard from "./components/dashboard/VaultDashboard";
-import { useVault } from "./context/VaultContext";
+import AppShell from './components/layout/AppShell';
+import Gateway from './components/auth/Gateway';
+import VaultDashboard from './components/dashboard/VaultDashboard';
 
 function App() {
-  const { lockVault } = useVault();
-
   return (
     <Gateway>
       <AppShell>

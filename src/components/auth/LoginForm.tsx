@@ -19,10 +19,11 @@ export default function LoginForm() {
     try {
       // 1. Ask Rust to decrypt the file and load the DEK into RAM
       await invoke('unlock_vault', { password });
-      
+
       // 2. If it succeeds without throwing an error, we let the user in
       setStatus('UNLOCKED');
-    } catch (err: any) {
+    } catch (error) {
+      const err = error as Error;
       // 3. If Rust fails (wrong password or corrupted file), we show the error
       setError(err.toString() || 'Invalid Master Password');
       setPassword(''); // Clear the field for safety
@@ -38,9 +39,7 @@ export default function LoginForm() {
           <Lock className="w-8 h-8 text-primary" />
         </div>
         <h2 className="text-2xl font-bold text-text-main">Raiz Vault</h2>
-        <p className="text-sm text-text-muted mt-1">
-          Enter your Master Password to unlock
-        </p>
+        <p className="text-sm text-text-muted mt-1">Enter your Master Password to unlock</p>
       </div>
 
       <form onSubmit={handleUnlock} className="space-y-4">
