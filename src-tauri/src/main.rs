@@ -161,33 +161,19 @@ fn generate_secure_password(length: usize, include_symbols: bool) -> String {
     generate_password(length, include_symbols)
 }
 
-/// Securely copies the encrypted vault file to the user's Downloads folder.
+/// Securely copies the encrypted vault file to the path chosen by the user.
 #[tauri::command]
-fn export_vault(state: tauri::State<'_, AppState>) -> Result<String, String> {
+fn export_vault(destination_path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let vault_path = &state.file_path;
 
     if !std::path::Path::new(vault_path).exists() {
         return Err("Vault file not found. Nothing to export.".to_string());
     }
 
-    // Get the user's OS Downloads directory
-    let download_dir = dirs::download_dir().ok_or("Could not find Downloads directory")?;
+    // Securely copy the encrypted file to the exact path the user selected
+    std::fs::copy(vault_path, &destination_path).map_err(|e| e.to_string())?;
 
-    // Create a unique backup filename using a timestamp
-    let time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let backup_filename = format!("raiz_backup_{}.enc", time);
-    let backup_path = download_dir.join(&backup_filename);
-
-    // Securely copy the encrypted file
-    fs::copy(vault_path, &backup_path).map_err(|e| e.to_string())?;
-
-    Ok(format!(
-        "Vault exported to Downloads as: {}",
-        backup_filename
-    ))
+    Ok(())
 }
 
 /// Permanently deletes the vault from the hard drive and wipes RAM.
@@ -220,6 +206,7 @@ fn main() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             check_vault_exists,
