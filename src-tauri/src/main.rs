@@ -7,7 +7,9 @@ mod storage;
 
 use crypto::{generate_password, generate_recovery_phrase};
 use models::{Account, Vault};
+use std::fs;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 use storage::{load_vault, recover_vault, save_vault, update_vault};
 use uuid::Uuid;
 
@@ -127,17 +129,25 @@ fn delete_account(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result
     }
 }
 
-/// Changes the Master Password. Generates and returns a NEW 24-word recovery phrase.
+/// Changes the Master Password and generates a NEW 24-word recovery phrase.
 #[tauri::command]
 fn change_master_password(
+    current_password: &str, // Added this parameter!
     new_password: &str,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
+    // 1. Verify the current password is correct before allowing a change
+    if load_vault(current_password, &state.file_path).is_err() {
+        return Err("Incorrect current Master Password.".to_string());
+    }
+
     let vault_guard = state.vault.lock().unwrap();
 
     if let Some(vault) = vault_guard.as_ref() {
-        // We generate a new phrase so the old compromised paper backup is invalidated.
+        // 2. Generate a new phrase so the old compromised paper backup is invalidated
         let new_phrase = generate_recovery_phrase();
+
+        // 3. Save the vault with the NEW password and NEW phrase
         save_vault(vault, new_password, &new_phrase, &state.file_path)?;
         Ok(new_phrase)
     } else {
@@ -149,6 +159,56 @@ fn change_master_password(
 #[tauri::command]
 fn generate_secure_password(length: usize, include_symbols: bool) -> String {
     generate_password(length, include_symbols)
+}
+
+/// Securely copies the encrypted vault file to the user's Downloads folder.
+#[tauri::command]
+fn export_vault(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let vault_path = &state.file_path;
+
+    if !std::path::Path::new(vault_path).exists() {
+        return Err("Vault file not found. Nothing to export.".to_string());
+    }
+
+    // Get the user's OS Downloads directory
+    let download_dir = dirs::download_dir().ok_or("Could not find Downloads directory")?;
+
+    // Create a unique backup filename using a timestamp
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let backup_filename = format!("raiz_backup_{}.enc", time);
+    let backup_path = download_dir.join(&backup_filename);
+
+    // Securely copy the encrypted file
+    fs::copy(vault_path, &backup_path).map_err(|e| e.to_string())?;
+
+    Ok(format!(
+        "Vault exported to Downloads as: {}",
+        backup_filename
+    ))
+}
+
+/// Permanently deletes the vault from the hard drive and wipes RAM.
+#[tauri::command]
+fn delete_entire_vault(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let vault_path = &state.file_path;
+
+    // 1. Delete the physical file from the hard drive
+    if std::path::Path::new(vault_path).exists() {
+        fs::remove_file(vault_path).map_err(|e| e.to_string())?;
+    }
+
+    // 2. Wipe the decrypted data and keys from Active Memory (RAM)
+    *state.vault.lock().unwrap() = None;
+    let mut dek_guard = state.dek.lock().unwrap();
+    if let Some(mut dek) = *dek_guard {
+        dek.fill(0); // Cryptographically zero out the key
+    }
+    *dek_guard = None;
+
+    Ok(())
 }
 
 // --- MAIN THREAD ---
@@ -171,7 +231,9 @@ fn main() {
             save_account,
             delete_account,
             change_master_password,
-            generate_secure_password
+            generate_secure_password,
+            export_vault,
+            delete_entire_vault
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
