@@ -3,12 +3,14 @@ import { Shield, Key, Settings, Lock } from 'lucide-react';
 
 interface AppShellProps {
   children: React.ReactNode;
+  activeView: 'vaults' | 'settings';
+  setActiveView: (view: 'vaults' | 'settings') => void;
 }
 
-export default function AppShell({ children }: AppShellProps) {
+export default function AppShell({ children, activeView, setActiveView }: AppShellProps) {
   return (
     <div className="flex h-screen w-full bg-background text-text-main overflow-hidden">
-      {/* THE SIDEBAR 
+      {/* THE SIDEBAR
         Fixed width, distinct background color, separated by a crisp border.
       */}
       <aside className="w-64 bg-sidebar border-r border-border flex flex-col">
@@ -20,12 +22,26 @@ export default function AppShell({ children }: AppShellProps) {
 
         {/* Navigation Links */}
         <nav className="flex-1 py-4 px-3 space-y-1">
-          <button className="w-full flex items-center px-3 py-2 text-sm font-medium rounded-md bg-primary-muted text-primary transition-colors">
+          <button
+            onClick={() => setActiveView('vaults')}
+            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+              activeView === 'vaults'
+                ? 'bg-primary-muted text-primary'
+                : 'text-text-muted hover:bg-surface hover:text-text-main'
+            }`}
+          >
             <Key className="w-4 h-4 mr-3" />
             All Vaults
           </button>
 
-          <button className="w-full flex items-center px-3 py-2 text-sm font-medium rounded-md text-text-muted hover:bg-surface hover:text-text-main transition-colors">
+          <button
+            onClick={() => setActiveView('settings')}
+            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+              activeView === 'settings'
+                ? 'bg-primary-muted text-primary'
+                : 'text-text-muted hover:bg-surface hover:text-text-main'
+            }`}
+          >
             <Settings className="w-4 h-4 mr-3" />
             Settings
           </button>

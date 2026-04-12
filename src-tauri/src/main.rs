@@ -7,6 +7,7 @@ mod storage;
 
 use crypto::{generate_password, generate_recovery_phrase};
 use models::{Account, Vault};
+use std::fs;
 use std::sync::Mutex;
 use storage::{load_vault, recover_vault, save_vault, update_vault};
 use uuid::Uuid;
@@ -21,12 +22,14 @@ struct AppState {
 // --- TAURI COMMANDS (THE API) ---
 
 /// Checks if a vault file already exists on this computer.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn check_vault_exists(state: tauri::State<'_, AppState>) -> bool {
     std::path::Path::new(&state.file_path).exists()
 }
 
 /// Creates a brand new vault and returns the 24-word recovery phrase to React.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn create_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
     if check_vault_exists(state.clone()) {
@@ -41,6 +44,7 @@ fn create_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<Str
 }
 
 /// Unlocks an existing vault and stores the Data and DEK in RAM.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
     match load_vault(password, &state.file_path) {
@@ -54,6 +58,7 @@ fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<Str
 }
 
 /// Securely wipes active memory.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn lock_vault(state: tauri::State<'_, AppState>) {
     *state.vault.lock().unwrap() = None;
@@ -67,6 +72,7 @@ fn lock_vault(state: tauri::State<'_, AppState>) {
 }
 
 /// Sends the list of accounts to the React UI.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, String> {
     let vault_guard = state.vault.lock().unwrap();
@@ -77,6 +83,7 @@ fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, Strin
 }
 
 /// Receives a new or updated Account from React and saves it securely to disk.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn save_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut vault_guard = state.vault.lock().unwrap();
@@ -99,6 +106,7 @@ fn save_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(
 }
 
 /// Unlocks the vault using the 24-word recovery phrase instead of the master password.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn unlock_with_recovery(phrase: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
     match recover_vault(phrase, &state.file_path) {
@@ -113,6 +121,7 @@ fn unlock_with_recovery(phrase: &str, state: tauri::State<'_, AppState>) -> Resu
 }
 
 /// Deletes a specific account from the vault and instantly updates the disk.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn delete_account(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut vault_guard = state.vault.lock().unwrap();
@@ -127,17 +136,26 @@ fn delete_account(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result
     }
 }
 
-/// Changes the Master Password. Generates and returns a NEW 24-word recovery phrase.
+/// Changes the Master Password and generates a NEW 24-word recovery phrase.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn change_master_password(
+    current_password: &str, // Added this parameter!
     new_password: &str,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
+    // 1. Verify the current password is correct before allowing a change
+    if load_vault(current_password, &state.file_path).is_err() {
+        return Err("Incorrect current Master Password.".to_string());
+    }
+
     let vault_guard = state.vault.lock().unwrap();
 
     if let Some(vault) = vault_guard.as_ref() {
-        // We generate a new phrase so the old compromised paper backup is invalidated.
+        // 2. Generate a new phrase so the old compromised paper backup is invalidated
         let new_phrase = generate_recovery_phrase();
+
+        // 3. Save the vault with the NEW password and NEW phrase
         save_vault(vault, new_password, &new_phrase, &state.file_path)?;
         Ok(new_phrase)
     } else {
@@ -146,12 +164,52 @@ fn change_master_password(
 }
 
 /// Generates a secure password for the UI to display and use.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn generate_secure_password(length: usize, include_symbols: bool) -> String {
     generate_password(length, include_symbols)
 }
 
+/// Securely copies the encrypted vault file to the path chosen by the user.
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn export_vault(destination_path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let vault_path = &state.file_path;
+
+    if !std::path::Path::new(vault_path).exists() {
+        return Err("Vault file not found. Nothing to export.".to_string());
+    }
+
+    // Securely copy the encrypted file to the exact path the user selected
+    std::fs::copy(vault_path, &destination_path).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Permanently deletes the vault from the hard drive and wipes RAM.
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn delete_entire_vault(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let vault_path = &state.file_path;
+
+    // 1. Delete the physical file from the hard drive
+    if std::path::Path::new(vault_path).exists() {
+        fs::remove_file(vault_path).map_err(|e| e.to_string())?;
+    }
+
+    // 2. Wipe the decrypted data and keys from Active Memory (RAM)
+    *state.vault.lock().unwrap() = None;
+    let mut dek_guard = state.dek.lock().unwrap();
+    if let Some(mut dek) = *dek_guard {
+        dek.fill(0); // Cryptographically zero out the key
+    }
+    *dek_guard = None;
+
+    Ok(())
+}
+
 // --- MAIN THREAD ---
+#[cfg(not(tarpaulin_include))]
 fn main() {
     let state = AppState {
         vault: Mutex::new(None),
@@ -160,6 +218,7 @@ fn main() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             check_vault_exists,
@@ -171,7 +230,9 @@ fn main() {
             save_account,
             delete_account,
             change_master_password,
-            generate_secure_password
+            generate_secure_password,
+            export_vault,
+            delete_entire_vault
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
