@@ -22,7 +22,6 @@ struct AppState {
 // --- TAURI COMMANDS (THE API) ---
 
 /// Checks if a vault file already exists on this computer.
-
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn check_vault_exists(state: tauri::State<'_, AppState>) -> bool {
@@ -210,6 +209,7 @@ fn delete_entire_vault(state: tauri::State<'_, AppState>) -> Result<(), String> 
 }
 
 // --- MAIN THREAD ---
+#[cfg(not(tarpaulin_include))]
 fn main() {
     let state = AppState {
         vault: Mutex::new(None),
