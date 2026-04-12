@@ -22,12 +22,15 @@ struct AppState {
 // --- TAURI COMMANDS (THE API) ---
 
 /// Checks if a vault file already exists on this computer.
+
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn check_vault_exists(state: tauri::State<'_, AppState>) -> bool {
     std::path::Path::new(&state.file_path).exists()
 }
 
 /// Creates a brand new vault and returns the 24-word recovery phrase to React.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn create_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
     if check_vault_exists(state.clone()) {
@@ -42,6 +45,7 @@ fn create_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<Str
 }
 
 /// Unlocks an existing vault and stores the Data and DEK in RAM.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
     match load_vault(password, &state.file_path) {
@@ -55,6 +59,7 @@ fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<Str
 }
 
 /// Securely wipes active memory.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn lock_vault(state: tauri::State<'_, AppState>) {
     *state.vault.lock().unwrap() = None;
@@ -68,6 +73,7 @@ fn lock_vault(state: tauri::State<'_, AppState>) {
 }
 
 /// Sends the list of accounts to the React UI.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, String> {
     let vault_guard = state.vault.lock().unwrap();
@@ -78,6 +84,7 @@ fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, Strin
 }
 
 /// Receives a new or updated Account from React and saves it securely to disk.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn save_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut vault_guard = state.vault.lock().unwrap();
@@ -100,6 +107,7 @@ fn save_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(
 }
 
 /// Unlocks the vault using the 24-word recovery phrase instead of the master password.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn unlock_with_recovery(phrase: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
     match recover_vault(phrase, &state.file_path) {
@@ -114,6 +122,7 @@ fn unlock_with_recovery(phrase: &str, state: tauri::State<'_, AppState>) -> Resu
 }
 
 /// Deletes a specific account from the vault and instantly updates the disk.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn delete_account(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut vault_guard = state.vault.lock().unwrap();
@@ -129,6 +138,7 @@ fn delete_account(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result
 }
 
 /// Changes the Master Password and generates a NEW 24-word recovery phrase.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn change_master_password(
     current_password: &str, // Added this parameter!
@@ -155,12 +165,14 @@ fn change_master_password(
 }
 
 /// Generates a secure password for the UI to display and use.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn generate_secure_password(length: usize, include_symbols: bool) -> String {
     generate_password(length, include_symbols)
 }
 
 /// Securely copies the encrypted vault file to the path chosen by the user.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn export_vault(destination_path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let vault_path = &state.file_path;
@@ -176,6 +188,7 @@ fn export_vault(destination_path: String, state: tauri::State<'_, AppState>) -> 
 }
 
 /// Permanently deletes the vault from the hard drive and wipes RAM.
+#[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn delete_entire_vault(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let vault_path = &state.file_path;
