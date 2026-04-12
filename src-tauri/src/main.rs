@@ -9,7 +9,6 @@ use crypto::{generate_password, generate_recovery_phrase};
 use models::{Account, Vault};
 use std::fs;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 use storage::{load_vault, recover_vault, save_vault, update_vault};
 use uuid::Uuid;
 

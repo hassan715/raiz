@@ -63,7 +63,15 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
     setIsExporting(true);
     setExportMessage(null);
     try {
-      // 1. Open the native OS Save Dialog
+      // 1. Generate a human-readable date (DD_MM_YYYY)
+      const date = new Date();
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0'); // JS months are 0-indexed
+      const year = date.getFullYear();
+
+      const suggestedFilename = `raiz_backup_${day}_${month}_${year}.enc`;
+
+      // 2. Open the native OS Save Dialog with our new dynamic filename
       const filePath = await save({
         filters: [
           {
@@ -71,16 +79,16 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
             extensions: ['enc'],
           },
         ],
-        defaultPath: 'raiz_backup.enc',
+        defaultPath: suggestedFilename,
       });
 
-      // 2. If the user clicks "Cancel" on the dialog, stop here
+      // 3. If the user clicks "Cancel", stop here
       if (!filePath) {
         setIsExporting(false);
         return;
       }
 
-      // 3. Send the exact path they chose to our Rust backend
+      // 4. Send the exact path they chose to our Rust backend
       await invoke('export_vault', { destinationPath: filePath });
       setExportMessage({ type: 'success', text: 'Vault exported successfully.' });
     } catch (error) {
