@@ -30,7 +30,7 @@ export default function RecoveryForm({ onBack }: RecoveryFormProps) {
     try {
       await invoke('unlock_with_recovery', { phrase: phrase.trim() });
       setStep('NEW_PASSWORD');
-    } catch (err) {
+    } catch {
       setError('Invalid recovery phrase. Please check your spelling and spacing.');
     } finally {
       setIsLoading(false);
