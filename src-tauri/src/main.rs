@@ -208,6 +208,30 @@ fn delete_entire_vault(state: tauri::State<'_, AppState>) -> Result<(), String> 
     Ok(())
 }
 
+/// Resets the Master Password after a successful recovery.
+/// Requires the vault to already be unlocked in active memory.
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn reset_master_password(
+    new_password: &str,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let vault_guard = state.vault.lock().unwrap();
+
+    if let Some(vault) = vault_guard.as_ref() {
+        // 1. Generate a brand new recovery phrase to invalidate the old one
+        let new_phrase = generate_recovery_phrase();
+
+        // 2. Save the vault with the NEW password and NEW phrase
+        storage::save_vault(vault, new_password, &new_phrase, &state.file_path)?;
+
+        // 3. Return the new phrase to the UI so the user can write it down
+        Ok(new_phrase)
+    } else {
+        Err("Vault is locked. Cannot reset password.".to_string())
+    }
+}
+
 // --- MAIN THREAD ---
 #[cfg(not(tarpaulin_include))]
 fn main() {
@@ -232,7 +256,8 @@ fn main() {
             change_master_password,
             generate_secure_password,
             export_vault,
-            delete_entire_vault
+            delete_entire_vault,
+            reset_master_password
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

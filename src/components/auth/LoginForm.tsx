@@ -2,12 +2,16 @@ import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useVault } from '../../context/VaultContext';
 import { Lock, ArrowRight, Loader2 } from 'lucide-react';
+import RecoveryForm from './RecoveryForm';
 
 export default function LoginForm() {
   const { setStatus } = useVault();
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // State to toggle between Login and Recovery
+  const [isRecovering, setIsRecovering] = useState(false);
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +35,11 @@ export default function LoginForm() {
       setIsProcessing(false);
     }
   };
+
+  // If the user clicks "Forgot Password", render the recovery flow instead
+  if (isRecovering) {
+    return <RecoveryForm onBack={() => setIsRecovering(false)} />;
+  }
 
   return (
     <div className="w-full max-w-sm mx-auto p-8 bg-surface border border-border rounded-xl shadow-2xl">
@@ -73,6 +82,17 @@ export default function LoginForm() {
             <p className="text-sm text-danger text-center font-medium">{error}</p>
           </div>
         )}
+
+        {/* Forgot Password Button */}
+        <div className="pt-2 text-center">
+          <button
+            type="button"
+            onClick={() => setIsRecovering(true)}
+            className="text-xs text-text-muted hover:text-primary transition-colors"
+          >
+            Forgot your Master Password?
+          </button>
+        </div>
       </form>
     </div>
   );
