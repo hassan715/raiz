@@ -5,6 +5,7 @@ import VaultDashboard from './components/dashboard/VaultDashboard';
 import SettingsView from './components/settings/SettingsView';
 import { useVault } from './context/VaultContext';
 import { useIdleTimeout } from './hooks/useIdleTimeout';
+import { ThemeProvider } from './context/ThemeContext';
 
 function App() {
   const { lockVault } = useVault();
@@ -26,15 +27,17 @@ function App() {
   useIdleTimeout(lockTimeout, lockVault);
 
   return (
-    <Gateway>
-      <AppShell activeView={activeView} setActiveView={setActiveView}>
-        {activeView === 'vaults' ? (
-          <VaultDashboard />
-        ) : (
-          <SettingsView lockTimeout={lockTimeout} setLockTimeout={setLockTimeout} />
-        )}
-      </AppShell>
-    </Gateway>
+    <ThemeProvider>
+      <Gateway>
+        <AppShell activeView={activeView} setActiveView={setActiveView}>
+          {activeView === 'vaults' ? (
+            <VaultDashboard />
+          ) : (
+            <SettingsView lockTimeout={lockTimeout} setLockTimeout={setLockTimeout} />
+          )}
+        </AppShell>
+      </Gateway>
+    </ThemeProvider>
   );
 }
 

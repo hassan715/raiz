@@ -1,7 +1,20 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useVault } from '../../context/VaultContext';
-import { Shield, Database, AlertTriangle, Save, Download, Trash2, Loader2 } from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
+import {
+  Shield,
+  Database,
+  AlertTriangle,
+  Save,
+  Download,
+  Trash2,
+  Loader2,
+  Palette,
+  Sun,
+  Moon,
+  Monitor,
+} from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 
 interface SettingsViewProps {
@@ -11,7 +24,10 @@ interface SettingsViewProps {
 
 export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsViewProps) {
   const { setStatus } = useVault();
-  const [activeTab, setActiveTab] = useState<'security' | 'data' | 'danger'>('security');
+  const { theme, setTheme } = useTheme();
+  const [activeTab, setActiveTab] = useState<'appearance' | 'security' | 'data' | 'danger'>(
+    'appearance'
+  );
 
   // --- Form States ---
 
@@ -63,15 +79,13 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
     setIsExporting(true);
     setExportMessage(null);
     try {
-      // 1. Generate a human-readable date (DD_MM_YYYY)
       const date = new Date();
       const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0'); // JS months are 0-indexed
+      const month = String(date.getMonth() + 1).padStart(2, '0');
       const year = date.getFullYear();
 
       const suggestedFilename = `raiz_backup_${day}_${month}_${year}.enc`;
 
-      // 2. Open the native OS Save Dialog with our new dynamic filename
       const filePath = await save({
         filters: [
           {
@@ -82,13 +96,11 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
         defaultPath: suggestedFilename,
       });
 
-      // 3. If the user clicks "Cancel", stop here
       if (!filePath) {
         setIsExporting(false);
         return;
       }
 
-      // 4. Send the exact path they chose to our Rust backend
       await invoke('export_vault', { destinationPath: filePath });
       setExportMessage({ type: 'success', text: 'Vault exported successfully.' });
     } catch (error) {
@@ -105,7 +117,6 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
     setIsDeleting(true);
     try {
       await invoke('delete_entire_vault');
-      // If successful, boot the user back to the Setup screen
       setStatus('SETUP');
     } catch (error) {
       const err = error as Error;
@@ -121,6 +132,18 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
         <h2 className="text-xl font-semibold mb-6 px-2 tracking-tight">Settings</h2>
 
         <nav className="space-y-1">
+          <button
+            onClick={() => setActiveTab('appearance')}
+            className={`w-full flex items-center px-3 py-2.5 rounded-md transition-colors text-sm font-medium ${
+              activeTab === 'appearance'
+                ? 'bg-primary/10 text-primary'
+                : 'text-text-muted hover:bg-surface-hover hover:text-text-main'
+            }`}
+          >
+            <Palette className="w-4 h-4 mr-3" />
+            Appearance
+          </button>
+
           <button
             onClick={() => setActiveTab('security')}
             className={`w-full flex items-center px-3 py-2.5 rounded-md transition-colors text-sm font-medium ${
@@ -164,6 +187,60 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
       {/* Main Content Area */}
       <div className="flex-1 p-10 overflow-y-auto">
         <div className="max-w-2xl">
+          {/* ================= APPEARANCE TAB ================= */}
+          {activeTab === 'appearance' && (
+            <div className="space-y-8 animate-in slide-in-from-bottom-2 fade-in duration-300">
+              <div>
+                <h3 className="text-lg font-medium mb-1">Appearance</h3>
+                <p className="text-sm text-text-muted">
+                  Customize the look and feel of your vault.
+                </p>
+              </div>
+
+              <div className="p-5 border border-border rounded-lg bg-surface">
+                <p className="text-sm font-medium text-text-main mb-4">Theme Preference</p>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <button
+                    onClick={() => setTheme('light')}
+                    className={`flex flex-col items-center justify-center p-4 border rounded-md transition-all ${
+                      theme === 'light'
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-border bg-background text-text-muted hover:border-text-muted hover:text-text-main'
+                    }`}
+                  >
+                    <Sun className="w-5 h-5 mb-2" />
+                    <span className="text-sm font-medium">Light</span>
+                  </button>
+
+                  <button
+                    onClick={() => setTheme('dark')}
+                    className={`flex flex-col items-center justify-center p-4 border rounded-md transition-all ${
+                      theme === 'dark'
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-border bg-background text-text-muted hover:border-text-muted hover:text-text-main'
+                    }`}
+                  >
+                    <Moon className="w-5 h-5 mb-2" />
+                    <span className="text-sm font-medium">Dark</span>
+                  </button>
+
+                  <button
+                    onClick={() => setTheme('system')}
+                    className={`flex flex-col items-center justify-center p-4 border rounded-md transition-all ${
+                      theme === 'system'
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-border bg-background text-text-muted hover:border-text-muted hover:text-text-main'
+                    }`}
+                  >
+                    <Monitor className="w-5 h-5 mb-2" />
+                    <span className="text-sm font-medium">System</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ================= SECURITY TAB ================= */}
           {activeTab === 'security' && (
             <div className="space-y-8 animate-in slide-in-from-bottom-2 fade-in duration-300">

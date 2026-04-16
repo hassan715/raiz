@@ -35,7 +35,8 @@
   /* =========================================
      LIGHT MODE (Default System Preference)
      ========================================= */
-  :root {
+  :root,
+  :root.light {
     --primary: #0572ec;
     --primary-hover: #045bbd;
     --primary-muted: #0572ec33;
@@ -50,22 +51,20 @@
   }
 
   /* =========================================
-     DARK MODE (Auto-Switched via OS)
+     DARK MODE (Triggered by ThemeContext)
      ========================================= */
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --primary: #0a84ff; /* Slightly brighter blue for dark mode readability */
-      --primary-hover: #0572ec;
-      --primary-muted: #0a84ff33;
+  :root.dark {
+    --primary: #0a84ff; /* Slightly brighter blue for dark mode readability */
+    --primary-hover: #0572ec;
+    --primary-muted: #0a84ff33;
 
-      --bg-main: #1a1c1e;
-      --bg-surface: #25282b;
-      --bg-sidebar: #121416;
-      --border-color: #313539;
+    --bg-main: #1a1c1e;
+    --bg-surface: #25282b;
+    --bg-sidebar: #121416;
+    --border-color: #313539;
 
-      --text-primary: #f9f9fb;
-      --text-secondary: #8e949b;
-    }
+    --text-primary: #f9f9fb;
+    --text-secondary: #8e949b;
   }
 
   /* Global Reset & Base Styles */
@@ -76,6 +75,10 @@
     margin: 0;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* NEW: Smoothly animate the color changes */
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease;
   }
 
   /* Clean default focus outline for keyboard navigation */
