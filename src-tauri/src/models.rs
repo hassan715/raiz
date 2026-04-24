@@ -1,10 +1,22 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Default tags for new vaults AND backward compatibility for old files
+fn default_tags() -> Vec<String> {
+    vec![
+        "Work".to_string(),
+        "Personal".to_string(),
+        "Finance".to_string(),
+        "School".to_string(),
+    ]
+}
+
 /// The root structure representing the entire user database.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Vault {
     pub accounts: Vec<Account>,
+    #[serde(default = "default_tags")] // Instantly fixes old .enc files!
+    pub tags: Vec<String>,
 }
 
 impl Vault {
@@ -12,6 +24,7 @@ impl Vault {
     pub fn new() -> Self {
         Self {
             accounts: Vec::new(),
+            tags: default_tags(),
         }
     }
 }

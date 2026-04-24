@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, Save, RefreshCw, Eye, EyeOff, Loader2, Globe, Star } from 'lucide-react';
+import { X, Save, RefreshCw, Eye, EyeOff, Loader2, Globe, Star, Tag } from 'lucide-react';
 import { Account } from '../../types';
 import { popularServices, ServiceTemplate } from '../../data/serviceDictionary';
 
@@ -40,10 +40,18 @@ export default function VaultItemForm({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // --- 5. Autocomplete State ---
+  // --- 5. Autocomplete & Global Tags State ---
   const [suggestions, setSuggestions] = useState<ServiceTemplate[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [globalTags, setGlobalTags] = useState<string[]>([]); // NEW: Global Tags State
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch Global Tags when the form opens
+  useEffect(() => {
+    if (isOpen) {
+      invoke<string[]>('get_global_tags').then(setGlobalTags).catch(console.error);
+    }
+  }, [isOpen]);
 
   // Pre-fill form if we are in Edit Mode
   useEffect(() => {
@@ -128,10 +136,25 @@ export default function VaultItemForm({
       setPassword(newPassword);
       setShowPassword(true);
     } catch {
-      //const err = error as Error;
       setError('Failed to generate password');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // NEW: Toggle Tags from the pill UI
+  const toggleTag = (tagToToggle: string) => {
+    const currentTags = tagsInput
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+
+    if (currentTags.includes(tagToToggle)) {
+      // Remove it
+      setTagsInput(currentTags.filter((t) => t !== tagToToggle).join(', '));
+    } else {
+      // Add it
+      setTagsInput([...currentTags, tagToToggle].join(', '));
     }
   };
 
@@ -190,19 +213,6 @@ export default function VaultItemForm({
 
       await invoke('save_account', { account: newAccount });
 
-      // Clear form completely on success
-      setName('');
-      setAccountType('Login');
-      setIsFavorite(false);
-      setTagsInput('');
-      setUsername('');
-      setEmail('');
-      setUrl('');
-      setPassword('');
-      setNotes('');
-      setHas2FA(false);
-      setRecoveryCodesInput('');
-
       onSaved();
       onClose();
     } catch (error) {
@@ -225,7 +235,9 @@ export default function VaultItemForm({
       <div className="fixed inset-y-0 right-0 w-full max-w-md bg-surface border-l border-border shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-lg font-semibold text-text-main">New Item</h2>
+          <h2 className="text-lg font-semibold text-text-main">
+            {initialData ? 'Edit Item' : 'New Item'}
+          </h2>
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setIsFavorite(!isFavorite)}
@@ -418,12 +430,42 @@ export default function VaultItemForm({
             {/* Metadata Section (Tags & Notes) */}
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">Tags</label>
+                <label className="flex items-center text-sm font-medium text-text-muted mb-2">
+                  <Tag className="w-4 h-4 mr-1.5" />
+                  Classification Tags
+                </label>
+
+                {/* NEW: Clickable Global Tags UI */}
+                {globalTags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {globalTags.map((tag) => {
+                      const isSelected = tagsInput
+                        .split(',')
+                        .map((t) => t.trim())
+                        .includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => toggleTag(tag)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+                            isSelected
+                              ? 'bg-primary text-white border-primary'
+                              : 'bg-surface text-text-main border-border hover:border-primary hover:text-primary'
+                          }`}
+                        >
+                          {isSelected ? `✓ ${tag}` : `+ ${tag}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 <input
                   type="text"
                   value={tagsInput}
                   onChange={(e) => setTagsInput(e.target.value)}
-                  placeholder="e.g. work, personal, finance (comma separated)"
+                  placeholder="Or type custom tags (comma separated)..."
                   className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main text-sm focus:outline-none focus:border-primary transition-colors"
                 />
               </div>

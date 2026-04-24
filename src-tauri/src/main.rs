@@ -232,6 +232,49 @@ fn reset_master_password(
     }
 }
 
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn get_global_tags(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    let vault_guard = state.vault.lock().unwrap();
+    match &*vault_guard {
+        Some(vault) => Ok(vault.tags.clone()),
+        None => Err("Vault is currently locked.".to_string()),
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn add_global_tag(tag: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut vault_guard = state.vault.lock().unwrap();
+    let dek_guard = state.dek.lock().unwrap();
+
+    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        let clean_tag = tag.trim().to_string();
+        if !clean_tag.is_empty() && !vault.tags.contains(&clean_tag) {
+            vault.tags.push(clean_tag);
+            storage::update_vault(vault, dek, &state.file_path)?;
+        }
+        Ok(())
+    } else {
+        Err("Vault is locked.".to_string())
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn delete_global_tag(tag: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut vault_guard = state.vault.lock().unwrap();
+    let dek_guard = state.dek.lock().unwrap();
+
+    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        vault.tags.retain(|t| t != &tag);
+        storage::update_vault(vault, dek, &state.file_path)?;
+        Ok(())
+    } else {
+        Err("Vault is locked.".to_string())
+    }
+}
+
 // --- MAIN THREAD ---
 #[cfg(not(tarpaulin_include))]
 fn main() {
@@ -257,7 +300,10 @@ fn main() {
             generate_secure_password,
             export_vault,
             delete_entire_vault,
-            reset_master_password
+            reset_master_password,
+            get_global_tags,
+            add_global_tag,
+            delete_global_tag
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
