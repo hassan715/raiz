@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useVault } from '../../context/VaultContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -14,6 +14,9 @@ import {
   Sun,
   Moon,
   Monitor,
+  Tag,
+  Plus,
+  X,
 } from 'lucide-react';
 import { save } from '@tauri-apps/plugin-dialog';
 
@@ -25,6 +28,7 @@ interface SettingsViewProps {
 export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsViewProps) {
   const { setStatus } = useVault();
   const { theme, setTheme } = useTheme();
+  // Removed 'tags' from the activeTab state
   const [activeTab, setActiveTab] = useState<'appearance' | 'security' | 'data' | 'danger'>(
     'appearance'
   );
@@ -51,7 +55,53 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // Global Tags
+  const [globalTags, setGlobalTags] = useState<string[]>([]);
+  const [newTagInput, setNewTagInput] = useState('');
+  const [isTagsLoading, setIsTagsLoading] = useState(false);
+
   // --- Handlers ---
+
+  useEffect(() => {
+    const fetchTags = async () => {
+      try {
+        const tags = await invoke<string[]>('get_global_tags');
+        setGlobalTags(tags);
+      } catch (err) {
+        console.error('Failed to load tags:', err);
+      }
+    };
+    fetchTags();
+  }, []);
+
+  const handleAddTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTagInput.trim()) return;
+    setIsTagsLoading(true);
+    try {
+      await invoke('add_global_tag', { tag: newTagInput });
+      const updated = await invoke<string[]>('get_global_tags');
+      setGlobalTags(updated);
+      setNewTagInput('');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsTagsLoading(false);
+    }
+  };
+
+  const handleDeleteTag = async (tagToDelete: string) => {
+    setIsTagsLoading(true);
+    try {
+      await invoke('delete_global_tag', { tag: tagToDelete });
+      const updated = await invoke<string[]>('get_global_tags');
+      setGlobalTags(updated);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsTagsLoading(false);
+    }
+  };
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,12 +137,7 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
       const suggestedFilename = `raiz_backup_${day}_${month}_${year}.enc`;
 
       const filePath = await save({
-        filters: [
-          {
-            name: 'Encrypted Vault',
-            extensions: ['enc'],
-          },
-        ],
+        filters: [{ name: 'Encrypted Vault', extensions: ['enc'] }],
         defaultPath: suggestedFilename,
       });
 
@@ -165,7 +210,7 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
             }`}
           >
             <Database className="w-4 h-4 mr-3" />
-            Data Management
+            Data & Organization
           </button>
 
           <div className="pt-4 mt-4 border-t border-border">
@@ -190,48 +235,33 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
           {/* ================= APPEARANCE TAB ================= */}
           {activeTab === 'appearance' && (
             <div className="space-y-8 animate-in slide-in-from-bottom-2 fade-in duration-300">
+              {/* ... (Keep your existing Appearance content) ... */}
               <div>
                 <h3 className="text-lg font-medium mb-1">Appearance</h3>
                 <p className="text-sm text-text-muted">
                   Customize the look and feel of your vault.
                 </p>
               </div>
-
               <div className="p-5 border border-border rounded-lg bg-surface">
                 <p className="text-sm font-medium text-text-main mb-4">Theme Preference</p>
-
                 <div className="grid grid-cols-3 gap-3">
                   <button
                     onClick={() => setTheme('light')}
-                    className={`flex flex-col items-center justify-center p-4 border rounded-md transition-all ${
-                      theme === 'light'
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-border bg-background text-text-muted hover:border-text-muted hover:text-text-main'
-                    }`}
+                    className={`flex flex-col items-center justify-center p-4 border rounded-md transition-all ${theme === 'light' ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-background text-text-muted hover:border-text-muted hover:text-text-main'}`}
                   >
                     <Sun className="w-5 h-5 mb-2" />
                     <span className="text-sm font-medium">Light</span>
                   </button>
-
                   <button
                     onClick={() => setTheme('dark')}
-                    className={`flex flex-col items-center justify-center p-4 border rounded-md transition-all ${
-                      theme === 'dark'
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-border bg-background text-text-muted hover:border-text-muted hover:text-text-main'
-                    }`}
+                    className={`flex flex-col items-center justify-center p-4 border rounded-md transition-all ${theme === 'dark' ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-background text-text-muted hover:border-text-muted hover:text-text-main'}`}
                   >
                     <Moon className="w-5 h-5 mb-2" />
                     <span className="text-sm font-medium">Dark</span>
                   </button>
-
                   <button
                     onClick={() => setTheme('system')}
-                    className={`flex flex-col items-center justify-center p-4 border rounded-md transition-all ${
-                      theme === 'system'
-                        ? 'border-primary bg-primary/5 text-primary'
-                        : 'border-border bg-background text-text-muted hover:border-text-muted hover:text-text-main'
-                    }`}
+                    className={`flex flex-col items-center justify-center p-4 border rounded-md transition-all ${theme === 'system' ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-background text-text-muted hover:border-text-muted hover:text-text-main'}`}
                   >
                     <Monitor className="w-5 h-5 mb-2" />
                     <span className="text-sm font-medium">System</span>
@@ -244,13 +274,13 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
           {/* ================= SECURITY TAB ================= */}
           {activeTab === 'security' && (
             <div className="space-y-8 animate-in slide-in-from-bottom-2 fade-in duration-300">
+              {/* ... (Keep your existing Security content) ... */}
               <div>
                 <h3 className="text-lg font-medium mb-1">Security Settings</h3>
                 <p className="text-sm text-text-muted">
                   Manage your master password and auto-lock preferences.
                 </p>
               </div>
-
               {/* AUTO-LOCK CONTROL */}
               <div className="p-5 border border-border rounded-lg bg-surface sm:flex sm:items-center sm:justify-between">
                 <div className="mb-4 sm:mb-0 sm:pr-4">
@@ -271,7 +301,6 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
                   <option value={0}>Never (Not Recommended)</option>
                 </select>
               </div>
-
               {/* CHANGE PASSWORD FORM */}
               <form
                 onSubmit={handleChangePassword}
@@ -279,7 +308,6 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
               >
                 <div>
                   <p className="text-sm font-medium text-text-main mb-4">Change Master Password</p>
-
                   <div className="space-y-3">
                     <div>
                       <label className="block text-xs font-medium text-text-muted mb-1">
@@ -308,7 +336,6 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
                     </div>
                   </div>
                 </div>
-
                 {pwdMessage && (
                   <div
                     className={`p-3 rounded-md text-sm font-medium ${pwdMessage.type === 'success' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}
@@ -316,7 +343,6 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
                     {pwdMessage.text}
                   </div>
                 )}
-
                 <div className="flex justify-end pt-2">
                   <button
                     type="submit"
@@ -335,54 +361,110 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
             </div>
           )}
 
-          {/* ================= DATA MANAGEMENT TAB ================= */}
+          {/* ================= DATA & ORGANIZATION TAB (MERGED) ================= */}
           {activeTab === 'data' && (
-            <div className="space-y-8 animate-in slide-in-from-bottom-2 fade-in duration-300">
+            <div className="space-y-10 animate-in slide-in-from-bottom-2 fade-in duration-300">
               <div>
-                <h3 className="text-lg font-medium mb-1">Data Management</h3>
-                <p className="text-sm text-text-muted">Securely backup your encrypted vault.</p>
+                <h3 className="text-lg font-medium mb-1">Data & Organization</h3>
+                <p className="text-sm text-text-muted">
+                  Manage your vault's taxonomy and encrypted backups.
+                </p>
               </div>
 
-              <div className="p-5 border border-border rounded-lg bg-surface flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium text-text-main">Export Vault</p>
-                  <p className="text-xs text-text-muted mt-1 max-w-sm">
-                    Create an encrypted backup file of your entire vault. This file can only be
-                    unlocked with your Master Password.
-                  </p>
+              {/* SECTION 1: TAGS */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-text-main flex items-center">
+                  <Tag className="w-4 h-4 mr-2" />
+                  Tag Taxonomy
+                </h4>
+                <div className="p-5 border border-border rounded-lg bg-surface">
+                  <form onSubmit={handleAddTag} className="flex gap-3 mb-6">
+                    <input
+                      type="text"
+                      value={newTagInput}
+                      onChange={(e) => setNewTagInput(e.target.value)}
+                      placeholder="New tag name (e.g., Social, Banking)"
+                      className="flex-1 px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary text-sm"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isTagsLoading || !newTagInput.trim()}
+                      className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 transition-colors flex items-center"
+                    >
+                      <Plus className="w-4 h-4 mr-1" /> Add
+                    </button>
+                  </form>
+
+                  <div className="flex flex-wrap gap-2">
+                    {globalTags.map((tag) => (
+                      <div
+                        key={tag}
+                        className="flex items-center px-3 py-1.5 bg-background border border-border rounded-full text-sm text-text-main"
+                      >
+                        <span>{tag}</span>
+                        <button
+                          onClick={() => handleDeleteTag(tag)}
+                          disabled={isTagsLoading}
+                          className="ml-2 p-0.5 text-text-muted hover:text-danger hover:bg-danger/10 rounded-full transition-colors disabled:opacity-50"
+                          title="Delete Tag"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    {globalTags.length === 0 && (
+                      <p className="text-sm text-text-muted italic">No tags defined yet.</p>
+                    )}
+                  </div>
                 </div>
-                <button
-                  onClick={handleExportVault}
-                  disabled={isExporting}
-                  className="w-full sm:w-auto flex justify-center items-center px-4 py-2 bg-surface border border-border text-text-main text-sm font-medium rounded-md hover:bg-surface-hover hover:text-primary transition-colors disabled:opacity-50"
-                >
-                  {isExporting ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4 mr-2" />
-                  )}
-                  Export Backup
-                </button>
               </div>
 
-              {exportMessage && (
-                <div
-                  className={`p-3 rounded-md text-sm font-medium ${exportMessage.type === 'success' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}
-                >
-                  {exportMessage.text}
+              {/* SECTION 2: EXPORT */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-text-main flex items-center">
+                  <Download className="w-4 h-4 mr-2" />
+                  Backup & Export
+                </h4>
+                <div className="p-5 border border-border rounded-lg bg-surface flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-text-main">Export Vault</p>
+                    <p className="text-xs text-text-muted mt-1 max-w-sm">
+                      Create an encrypted backup file of your entire vault. This file can only be
+                      unlocked with your Master Password.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleExportVault}
+                    disabled={isExporting}
+                    className="w-full sm:w-auto flex justify-center items-center px-4 py-2 bg-surface border border-border text-text-main text-sm font-medium rounded-md hover:bg-surface-hover hover:text-primary transition-colors disabled:opacity-50"
+                  >
+                    {isExporting ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4 mr-2" />
+                    )}
+                    Export Backup
+                  </button>
                 </div>
-              )}
+                {exportMessage && (
+                  <div
+                    className={`p-3 rounded-md text-sm font-medium ${exportMessage.type === 'success' ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}
+                  >
+                    {exportMessage.text}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {/* ================= DANGER ZONE TAB ================= */}
           {activeTab === 'danger' && (
             <div className="space-y-8 animate-in slide-in-from-bottom-2 fade-in duration-300">
+              {/* ... (Keep your existing Danger Zone content) ... */}
               <div>
                 <h3 className="text-lg font-medium text-danger mb-1">Danger Zone</h3>
                 <p className="text-sm text-text-muted">Irreversible actions for your vault.</p>
               </div>
-
               <div className="p-5 border border-danger/20 rounded-lg bg-danger/5">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
                   <div>
@@ -402,8 +484,6 @@ export default function SettingsView({ lockTimeout, setLockTimeout }: SettingsVi
                     </button>
                   )}
                 </div>
-
-                {/* Confirmation Box expands when clicked */}
                 {showDeleteConfirm && (
                   <div className="pt-4 border-t border-danger/20 animate-in fade-in slide-in-from-top-2">
                     <label className="block text-xs font-medium text-danger/80 mb-2">
