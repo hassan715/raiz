@@ -275,6 +275,47 @@ fn delete_global_tag(tag: String, state: tauri::State<'_, AppState>) -> Result<(
     }
 }
 
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn get_vaults(state: tauri::State<'_, AppState>) -> Result<Vec<models::InnerVault>, String> {
+    let vault_guard = state.vault.lock().unwrap();
+    match &*vault_guard {
+        Some(vault) => Ok(vault.vaults.clone()),
+        None => Err("Vault is currently locked.".to_string()),
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn create_inner_vault(
+    name: String,
+    description: Option<String>, // NEW: Accept description
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut vault_guard = state.vault.lock().unwrap();
+    let dek_guard = state.dek.lock().unwrap();
+
+    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        let clean_name = name.trim().to_string();
+        if !clean_name.is_empty() {
+            // Clean up the description string if it exists
+            let clean_desc = description
+                .map(|d| d.trim().to_string())
+                .filter(|d| !d.is_empty());
+
+            vault.vaults.push(models::InnerVault {
+                id: uuid::Uuid::new_v4(),
+                name: clean_name,
+                description: clean_desc,
+            });
+            storage::update_vault(vault, dek, &state.file_path)?;
+        }
+        Ok(())
+    } else {
+        Err("Vault is locked.".to_string())
+    }
+}
+
 // --- MAIN THREAD ---
 #[cfg(not(tarpaulin_include))]
 fn main() {
@@ -303,7 +344,9 @@ fn main() {
             reset_master_password,
             get_global_tags,
             add_global_tag,
-            delete_global_tag
+            delete_global_tag,
+            get_vaults,
+            create_inner_vault
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

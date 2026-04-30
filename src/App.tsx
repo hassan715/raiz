@@ -11,6 +11,9 @@ function App() {
   const { lockVault } = useVault();
   const [activeView, setActiveView] = useState<'vaults' | 'settings'>('vaults');
 
+  // Track the active vault filter (null means "All Vaults")
+  const [selectedVaultId, setSelectedVaultId] = useState<string | null>(null);
+
   // Load the saved timeout from local storage (default to 5 minutes)
   const [lockTimeout, setLockTimeout] = useState<number>(() => {
     const saved = localStorage.getItem('raiz_auto_lock');
@@ -23,15 +26,19 @@ function App() {
   }, [lockTimeout]);
 
   // ACTIVATE THE INVISIBLE WATCHER
-  // If the user goes idle for `lockTimeout` minutes, trigger `lockVault`
   useIdleTimeout(lockTimeout, lockVault);
 
   return (
     <ThemeProvider>
       <Gateway>
-        <AppShell activeView={activeView} setActiveView={setActiveView}>
+        <AppShell
+          activeView={activeView}
+          setActiveView={setActiveView}
+          selectedVaultId={selectedVaultId}
+          setSelectedVaultId={setSelectedVaultId}
+        >
           {activeView === 'vaults' ? (
-            <VaultDashboard />
+            <VaultDashboard selectedVaultId={selectedVaultId} />
           ) : (
             <SettingsView lockTimeout={lockTimeout} setLockTimeout={setLockTimeout} />
           )}
