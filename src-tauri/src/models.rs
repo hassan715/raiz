@@ -90,3 +90,23 @@ pub struct Metadata {
     pub updated_at: u64,
     pub accessed_at: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serde_defaults() {
+        // Explicitly call the default functions so the coverage tool marks them as tested
+        assert_eq!(default_vault_id(), Some(Uuid::nil()));
+
+        let tags = default_tags();
+        assert_eq!(tags.len(), 4);
+        assert!(tags.contains(&"Personal".to_string()));
+
+        let vaults = default_inner_vaults();
+        assert_eq!(vaults.len(), 1);
+        assert_eq!(vaults[0].id, Uuid::nil());
+        assert_eq!(vaults[0].name, "Personal");
+    }
+}
