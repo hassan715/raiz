@@ -1,6 +1,29 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+// Inner Vaults (Categories/Folders) ---
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InnerVault {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(default)] // Allows backward compatibility
+    pub description: Option<String>,
+}
+
+// Automatically injects a default "Personal" vault into old database files
+fn default_inner_vaults() -> Vec<InnerVault> {
+    vec![InnerVault {
+        id: Uuid::nil(), // Uses a zeroed-out UUID (00000000-0000-0000-0000-000000000000)
+        name: "Personal".to_string(),
+        description: Some("Default personal vault".to_string()),
+    }]
+}
+
+// Automatically assigns old un-vaulted accounts to the Personal vault
+fn default_vault_id() -> Option<Uuid> {
+    Some(Uuid::nil())
+}
+
 /// Default tags for new vaults AND backward compatibility for old files
 fn default_tags() -> Vec<String> {
     vec![
@@ -17,6 +40,8 @@ pub struct Vault {
     pub accounts: Vec<Account>,
     #[serde(default = "default_tags")] // Instantly fixes old .enc files!
     pub tags: Vec<String>,
+    #[serde(default = "default_inner_vaults")] // Seamlessly migrates old files
+    pub vaults: Vec<InnerVault>,
 }
 
 impl Vault {
@@ -25,6 +50,7 @@ impl Vault {
         Self {
             accounts: Vec::new(),
             tags: default_tags(),
+            vaults: default_inner_vaults(),
         }
     }
 }
@@ -33,6 +59,8 @@ impl Vault {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Account {
     pub id: Uuid,
+    #[serde(default = "default_vault_id")]
+    pub vault_id: Option<Uuid>,
     pub account_name: String,
     pub account_type: String, // e.g., "Website", "App", "Email"
     pub url: Option<String>,

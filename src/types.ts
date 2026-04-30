@@ -9,8 +9,15 @@ export interface RecoveryCode {
   is_used: boolean;
 }
 
+export interface InnerVault {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
 export interface Account {
   id: string;
+  vault_id: string;
   account_name: string;
   account_type: string;
   url: string | null;

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { X, Save, RefreshCw, Eye, EyeOff, Loader2, Globe, Star, Tag } from 'lucide-react';
-import { Account } from '../../types';
+import { Account, InnerVault } from '../../types'; // Import InnerVault
 import { popularServices, ServiceTemplate } from '../../data/serviceDictionary';
 
 interface VaultItemFormProps {
@@ -9,6 +9,7 @@ interface VaultItemFormProps {
   onClose: () => void;
   onSaved: () => void;
   initialData?: Account | null;
+  defaultVaultId?: string | null; // NEW: Receives the dashboard's active filter
 }
 
 export default function VaultItemForm({
@@ -16,53 +17,53 @@ export default function VaultItemForm({
   onClose,
   onSaved,
   initialData,
+  defaultVaultId,
 }: VaultItemFormProps) {
   // --- 1. Core Identification State ---
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState('Login');
   const [isFavorite, setIsFavorite] = useState(false);
   const [tagsInput, setTagsInput] = useState('');
+  // NEW: Vault Assignment State (Default to the zeroed UUID "Personal")
+  const [vaultId, setVaultId] = useState('00000000-0000-0000-0000-000000000000');
+  const [availableVaults, setAvailableVaults] = useState<InnerVault[]>([]);
 
-  // --- 2. Credentials State ---
+  // ... (Keep Credentials, Advanced Security, UI Status, Autocomplete states exactly the same) ...
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [url, setUrl] = useState('');
   const [password, setPassword] = useState('');
-
-  // --- 3. Advanced Security State ---
   const [notes, setNotes] = useState('');
   const [has2FA, setHas2FA] = useState(false);
   const [recoveryCodesInput, setRecoveryCodesInput] = useState('');
-
-  // --- 4. UI Status State ---
   const [showPassword, setShowPassword] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
-
-  // --- 5. Autocomplete & Global Tags State ---
   const [suggestions, setSuggestions] = useState<ServiceTemplate[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [globalTags, setGlobalTags] = useState<string[]>([]); // NEW: Global Tags State
+  const [globalTags, setGlobalTags] = useState<string[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Fetch Global Tags when the form opens
+  // Fetch Global Tags & Vaults when the form opens
   useEffect(() => {
     if (isOpen) {
       invoke<string[]>('get_global_tags').then(setGlobalTags).catch(console.error);
+      invoke<InnerVault[]>('get_vaults').then(setAvailableVaults).catch(console.error);
     }
   }, [isOpen]);
 
-  // Pre-fill form if we are in Edit Mode
+  // Pre-fill form
   useEffect(() => {
     if (initialData && isOpen) {
       setName(initialData.account_name);
       setAccountType(initialData.account_type);
       setIsFavorite(initialData.is_favorite);
+      // NEW: Load the item's vault
+      setVaultId(initialData.vault_id || '00000000-0000-0000-0000-000000000000');
       setUsername(initialData.username || '');
       setEmail(initialData.email || '');
       setUrl(initialData.url || '');
-      // Decode bytes back to strings for the form
       setPassword(
         initialData.password ? new TextDecoder().decode(new Uint8Array(initialData.password)) : ''
       );
@@ -72,7 +73,6 @@ export default function VaultItemForm({
       setTagsInput(initialData.tags.join(', '));
       setHas2FA(initialData.has_2fa);
 
-      // Map recovery codes back to a readable text block
       if (initialData.recovery_codes) {
         const mappedCodes = initialData.recovery_codes
           .map((rc) => new TextDecoder().decode(new Uint8Array(rc.code)))
@@ -80,11 +80,12 @@ export default function VaultItemForm({
         setRecoveryCodesInput(mappedCodes);
       }
     } else if (isOpen) {
-      // If opening fresh, clear everything
+      // If opening fresh, clear everything and use the Dashboard's active filter as the default
       setName('');
       setAccountType('Login');
       setIsFavorite(false);
       setTagsInput('');
+      setVaultId(defaultVaultId || '00000000-0000-0000-0000-000000000000');
       setUsername('');
       setEmail('');
       setUrl('');
@@ -93,8 +94,9 @@ export default function VaultItemForm({
       setHas2FA(false);
       setRecoveryCodesInput('');
     }
-  }, [initialData, isOpen]);
+  }, [initialData, isOpen, defaultVaultId]);
 
+  // ... (Keep handleNameChange, selectService, generatePassword, toggleTag exactly the same) ...
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -108,7 +110,6 @@ export default function VaultItemForm({
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setName(val);
-
     if (val.length > 0) {
       const filtered = popularServices.filter((service) =>
         service.name.toLowerCase().includes(val.toLowerCase())
@@ -142,18 +143,14 @@ export default function VaultItemForm({
     }
   };
 
-  // NEW: Toggle Tags from the pill UI
   const toggleTag = (tagToToggle: string) => {
     const currentTags = tagsInput
       .split(',')
       .map((t) => t.trim())
       .filter((t) => t.length > 0);
-
     if (currentTags.includes(tagToToggle)) {
-      // Remove it
       setTagsInput(currentTags.filter((t) => t !== tagToToggle).join(', '));
     } else {
-      // Add it
       setTagsInput([...currentTags, tagToToggle].join(', '));
     }
   };
@@ -169,11 +166,9 @@ export default function VaultItemForm({
     setError('');
 
     try {
-      // Encode standard password to bytes
       const passwordBytes = Array.from(new TextEncoder().encode(password));
       const now = Date.now();
 
-      // Encode Recovery Codes to Bytes securely
       const parsedCodes = recoveryCodesInput
         .split(/[\n,]+/)
         .map((code) => code.trim())
@@ -183,19 +178,17 @@ export default function VaultItemForm({
           is_used: false,
         }));
 
-      // Encode Secure Notes to Bytes securely
       const notesBytes =
         notes.trim().length > 0 ? Array.from(new TextEncoder().encode(notes)) : null;
 
-      // Parse Tags
       const tagsArray = tagsInput
         .split(',')
         .map((tag) => tag.trim())
         .filter((tag) => tag.length > 0);
 
-      // Construct the exact object Rust expects
       const newAccount: Account = {
         id: initialData ? initialData.id : crypto.randomUUID(),
+        vault_id: vaultId, // NEW: Include the assigned vault
         account_name: name,
         account_type: accountType,
         url: url || null,
@@ -208,7 +201,7 @@ export default function VaultItemForm({
         notes: notesBytes,
         tags: tagsArray,
         is_favorite: isFavorite,
-        metadata: { created_at: now, updated_at: now, accessed_at: now }, // Generated system metadata
+        metadata: { created_at: now, updated_at: now, accessed_at: now },
       };
 
       await invoke('save_account', { account: newAccount });
@@ -231,9 +224,8 @@ export default function VaultItemForm({
         className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 transition-opacity"
         onClick={onClose}
       />
-
       <div className="fixed inset-y-0 right-0 w-full max-w-md bg-surface border-l border-border shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
-        {/* Header */}
+        {/* ... (Keep Header the same) ... */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-lg font-semibold text-text-main">
             {initialData ? 'Edit Item' : 'New Item'}
@@ -242,7 +234,6 @@ export default function VaultItemForm({
             <button
               onClick={() => setIsFavorite(!isFavorite)}
               className={`p-2 rounded-md transition-colors ${isFavorite ? 'text-warning bg-warning/10' : 'text-text-muted hover:bg-background hover:text-text-main'}`}
-              title="Toggle Favorite"
             >
               <Star className="w-5 h-5" fill={isFavorite ? 'currentColor' : 'none'} />
             </button>
@@ -255,11 +246,29 @@ export default function VaultItemForm({
           </div>
         </div>
 
-        {/* Scrollable Form Body */}
         <div className="flex-1 overflow-y-auto p-6">
           <form id="vault-form" onSubmit={handleSave} className="space-y-5">
             {/* Classification Section */}
             <div className="space-y-4">
+              {/* NEW: VAULT SELECTOR */}
+              <div>
+                <label className="block text-sm font-medium text-text-muted mb-1">
+                  Vault Folder
+                </label>
+                <select
+                  value={vaultId}
+                  onChange={(e) => setVaultId(e.target.value)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors"
+                >
+                  {availableVaults.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* ... The rest of your form renders below this ... */}
               <div className="relative" ref={dropdownRef}>
                 <label className="block text-sm font-medium text-text-muted mb-1">
                   Item Name *
@@ -276,7 +285,6 @@ export default function VaultItemForm({
                   autoComplete="off"
                   autoFocus
                 />
-
                 {showSuggestions && suggestions.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-surface border border-border rounded-md shadow-lg overflow-hidden animate-in fade-in slide-in-from-top-1">
                     <ul className="py-1">
@@ -431,11 +439,8 @@ export default function VaultItemForm({
             <div className="space-y-4">
               <div>
                 <label className="flex items-center text-sm font-medium text-text-muted mb-2">
-                  <Tag className="w-4 h-4 mr-1.5" />
-                  Classification Tags
+                  <Tag className="w-4 h-4 mr-1.5" /> Classification Tags
                 </label>
-
-                {/* NEW: Clickable Global Tags UI */}
                 {globalTags.length > 0 && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     {globalTags.map((tag) => {
@@ -448,11 +453,7 @@ export default function VaultItemForm({
                           key={tag}
                           type="button"
                           onClick={() => toggleTag(tag)}
-                          className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
-                            isSelected
-                              ? 'bg-primary text-white border-primary'
-                              : 'bg-surface text-text-main border-border hover:border-primary hover:text-primary'
-                          }`}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${isSelected ? 'bg-primary text-white border-primary' : 'bg-surface text-text-main border-border hover:border-primary hover:text-primary'}`}
                         >
                           {isSelected ? `✓ ${tag}` : `+ ${tag}`}
                         </button>
@@ -460,7 +461,6 @@ export default function VaultItemForm({
                     })}
                   </div>
                 )}
-
                 <input
                   type="text"
                   value={tagsInput}
@@ -504,8 +504,7 @@ export default function VaultItemForm({
               <Loader2 className="w-5 h-5 animate-spin" />
             ) : (
               <>
-                <Save className="w-4 h-4 mr-2" />
-                Save Item
+                <Save className="w-4 h-4 mr-2" /> Save Item
               </>
             )}
           </button>

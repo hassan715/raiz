@@ -188,6 +188,7 @@ mod tests {
         // 3. Test Active Memory Update (Add an account without the Master Password)
         let new_account = Account {
             id: Uuid::new_v4(),
+            vault_id: Some(Uuid::nil()), // Added the default Personal vault ID
             account_name: "Test GitHub".to_string(),
             account_type: "Website".to_string(),
             url: None,
@@ -221,6 +222,18 @@ mod tests {
             "The account was not saved correctly!"
         );
         assert_eq!(recovered_vault.accounts[0].account_name, "Test GitHub");
+
+        // 5. Verify multi-vault and global tags defaults populated correctly
+        assert_eq!(
+            recovered_vault.vaults.len(),
+            1,
+            "Default vault was not created"
+        );
+        assert_eq!(
+            recovered_vault.tags.len(),
+            4,
+            "Default tags were not created"
+        );
 
         // Cleanup
         let _ = fs::remove_file(test_file);
