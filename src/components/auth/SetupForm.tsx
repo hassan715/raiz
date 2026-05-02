@@ -1,12 +1,22 @@
 import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useVault } from '../../context/VaultContext';
-import { Key, Eye, EyeOff, AlertTriangle, ShieldCheck, Copy, CheckCircle2 } from 'lucide-react';
+import {
+  Key,
+  Eye,
+  EyeOff,
+  AlertTriangle,
+  ShieldCheck,
+  Copy,
+  CheckCircle2,
+  User,
+} from 'lucide-react';
 
 export default function SetupForm() {
   const { setStatus } = useVault();
 
   // Form State
+  const [profileName, setProfileName] = useState(''); // NEW STATE
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -21,6 +31,10 @@ export default function SetupForm() {
     e.preventDefault();
     setError('');
 
+    if (!profileName.trim()) {
+      setError('Please provide a name for your profile.');
+      return;
+    }
     if (password.length < 12) {
       setError('Master Password must be at least 12 characters.');
       return;
@@ -33,7 +47,11 @@ export default function SetupForm() {
     setIsProcessing(true);
     try {
       // 1. Tell Rust to mathematically generate the vault and KEK/DEK
-      const phrase = await invoke<string>('create_vault', { password });
+      // NEW: Pass the profileName to the backend command
+      const phrase = await invoke<string>('create_vault', {
+        password,
+        profileName,
+      });
 
       // 2. Display the phrase to the user
       setRecoveryPhrase(phrase);
@@ -61,7 +79,7 @@ export default function SetupForm() {
   // --- VIEW 2: The Recovery Phrase Screen ---
   if (recoveryPhrase) {
     return (
-      <div className="w-full max-w-md mx-auto p-8 bg-surface border border-border rounded-xl shadow-2xl">
+      <div className="w-full max-w-md mx-auto p-8 bg-surface border border-border rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-300">
         <div className="flex flex-col items-center text-center mb-6">
           <div className="w-12 h-12 bg-warning/20 rounded-full flex items-center justify-center mb-4">
             <AlertTriangle className="w-6 h-6 text-warning" />
@@ -102,7 +120,7 @@ export default function SetupForm() {
 
   // --- VIEW 1: The Password Creation Screen ---
   return (
-    <div className="w-full max-w-md mx-auto p-8 bg-surface border border-border rounded-xl shadow-2xl">
+    <div className="w-full max-w-md mx-auto p-8 bg-surface border border-border rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-300">
       <div className="flex flex-col items-center text-center mb-8">
         <div className="w-12 h-12 bg-primary-muted rounded-full flex items-center justify-center mb-4">
           <Key className="w-6 h-6 text-primary" />
@@ -114,9 +132,26 @@ export default function SetupForm() {
       </div>
 
       <form onSubmit={handleCreateVault} className="space-y-4">
+        {/* Profile Name Input */}
+        <div>
+          <label className="block text-sm font-medium text-text-muted mb-1 flex items-center">
+            <User className="w-4 h-4 mr-1.5" /> Profile Name
+          </label>
+          <input
+            type="text"
+            value={profileName}
+            onChange={(e) => setProfileName(e.target.value)}
+            className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text-main focus:outline-none focus:border-primary transition-colors"
+            placeholder="e.g., John Doe"
+            autoFocus
+          />
+        </div>
+
         {/* Password Input */}
         <div>
-          <label className="block text-sm font-medium text-text-muted mb-1">Master Password</label>
+          <label className="block text-sm font-medium text-text-muted mb-1 mt-2">
+            Master Password
+          </label>
           <div className="relative">
             <input
               type={showPassword ? 'text' : 'password'}
@@ -124,7 +159,6 @@ export default function SetupForm() {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text-main focus:outline-none focus:border-primary transition-colors"
               placeholder="At least 12 characters..."
-              autoFocus
             />
             <button
               type="button"
@@ -157,7 +191,7 @@ export default function SetupForm() {
 
         <button
           type="submit"
-          disabled={isProcessing || !password || !confirmPassword}
+          disabled={isProcessing || !password || !confirmPassword || !profileName.trim()}
           className="w-full mt-6 py-3 px-4 bg-primary text-white rounded-lg font-medium hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {isProcessing ? 'Generating Cryptography...' : 'Create Vault'}

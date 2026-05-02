@@ -34,9 +34,15 @@ fn default_tags() -> Vec<String> {
     ]
 }
 
+/// Default profile name for backward compatibility
+fn default_profile_name() -> String {
+    "Admin".to_string()
+}
+
 /// The root structure representing the entire user database.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Vault {
+    pub profile_name: String,
     pub accounts: Vec<Account>,
     #[serde(default = "default_tags")] // Instantly fixes old .enc files!
     pub tags: Vec<String>,
@@ -48,6 +54,7 @@ impl Vault {
     /// Creates a completely empty, initialized vault.
     pub fn new() -> Self {
         Self {
+            profile_name: default_profile_name(),
             accounts: Vec::new(),
             tags: default_tags(),
             vaults: default_inner_vaults(),
@@ -100,6 +107,9 @@ mod tests {
         // Explicitly call the default functions so the coverage tool marks them as tested
         assert_eq!(default_vault_id(), Some(Uuid::nil()));
 
+        // Cover the profile name fallback
+        assert_eq!(default_profile_name(), "Admin".to_string());
+
         let tags = default_tags();
         assert_eq!(tags.len(), 4);
         assert!(tags.contains(&"Personal".to_string()));
@@ -108,5 +118,11 @@ mod tests {
         assert_eq!(vaults.len(), 1);
         assert_eq!(vaults[0].id, Uuid::nil());
         assert_eq!(vaults[0].name, "Personal");
+
+        // Cover the description fallback
+        assert_eq!(
+            vaults[0].description,
+            Some("Default personal vault".to_string())
+        );
     }
 }

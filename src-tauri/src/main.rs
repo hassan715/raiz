@@ -31,13 +31,23 @@ fn check_vault_exists(state: tauri::State<'_, AppState>) -> bool {
 /// Creates a brand new vault and returns the 24-word recovery phrase to React.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
-fn create_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
+fn create_vault(
+    password: &str,
+    profile_name: &str,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
     if check_vault_exists(state.clone()) {
         return Err("A vault already exists on this machine.".to_string());
     }
 
     let phrase = generate_recovery_phrase();
-    let empty_vault = Vault::new();
+    let mut empty_vault = Vault::new();
+
+    // Set the user's chosen profile name, fallback to default if they sent an empty string
+    let clean_name = profile_name.trim();
+    if !clean_name.is_empty() {
+        empty_vault.profile_name = clean_name.to_string();
+    }
 
     save_vault(&empty_vault, password, &phrase, &state.file_path)?;
     Ok(phrase) // Send the words to the UI so the user can write them down
@@ -316,6 +326,34 @@ fn create_inner_vault(
     }
 }
 
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn get_profile_name(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let vault_guard = state.vault.lock().unwrap();
+    match &*vault_guard {
+        Some(vault) => Ok(vault.profile_name.clone()),
+        None => Err("Vault is locked.".to_string()),
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn update_profile_name(new_name: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut vault_guard = state.vault.lock().unwrap();
+    let dek_guard = state.dek.lock().unwrap();
+
+    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        let clean_name = new_name.trim().to_string();
+        if !clean_name.is_empty() {
+            vault.profile_name = clean_name;
+            storage::update_vault(vault, dek, &state.file_path)?;
+        }
+        Ok(())
+    } else {
+        Err("Vault is locked.".to_string())
+    }
+}
+
 // --- MAIN THREAD ---
 #[cfg(not(tarpaulin_include))]
 fn main() {
@@ -346,7 +384,9 @@ fn main() {
             add_global_tag,
             delete_global_tag,
             get_vaults,
-            create_inner_vault
+            create_inner_vault,
+            get_profile_name,
+            update_profile_name
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
