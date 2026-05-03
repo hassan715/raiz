@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   X,
-  Save,
   RefreshCw,
   Eye,
   EyeOff,
@@ -277,7 +276,7 @@ export default function VaultItemForm({
         onClick={onClose}
       />
 
-      {/* Centered Modal - Locked height to prevent jiggle between steps */}
+      {/* Centered Modal */}
       <div className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-2xl h-[700px] max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
         {/* Dynamic Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-background z-10 shrink-0">
@@ -352,24 +351,9 @@ export default function VaultItemForm({
                 onSubmit={handleSave}
                 className="space-y-6 max-w-xl mx-auto w-full"
               >
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-text-muted mb-1">
-                      Vault Folder
-                    </label>
-                    <select
-                      value={vaultId}
-                      onChange={(e) => setVaultId(e.target.value)}
-                      className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors"
-                    >
-                      {availableVaults.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                {/* Vault folder selector has been moved to the footer */}
 
+                <div className="space-y-4 pt-2">
                   <div className="relative" ref={dropdownRef}>
                     <label className="block text-sm font-medium text-text-muted mb-1">
                       Item Name *
@@ -529,7 +513,7 @@ export default function VaultItemForm({
 
                 <hr className="border-border" />
 
-                <div className="space-y-4">
+                <div className="space-y-4 pb-4">
                   <div>
                     <label className="flex items-center text-sm font-medium text-text-muted mb-2">
                       <Tag className="w-4 h-4 mr-1.5" /> Classification Tags
@@ -578,28 +562,39 @@ export default function VaultItemForm({
                 </div>
 
                 {error && (
-                  <div className="p-3 bg-danger/10 border border-danger/20 rounded-md animate-in fade-in">
+                  <div className="p-3 bg-danger/10 border border-danger/20 rounded-md animate-in fade-in mb-4">
                     <p className="text-sm text-danger font-medium">{error}</p>
                   </div>
                 )}
               </form>
             </div>
 
-            <div className="p-6 border-t border-border bg-background z-10 shrink-0">
-              <button
-                type="submit"
-                form="vault-form"
-                disabled={isSaving || !name || !password}
-                className="w-full max-w-xl mx-auto flex items-center justify-center px-4 py-2 bg-primary text-white font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-              >
-                {isSaving ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 mr-2" /> Save Item
-                  </>
-                )}
-              </button>
+            {/* NEW FOOTER LAYOUT: Vault Selector + Right-Aligned Save Button */}
+            <div className="px-6 md:px-8 py-4 border-t border-border bg-background z-10 shrink-0">
+              <div className="max-w-xl mx-auto w-full flex items-center justify-end space-x-3">
+                {/* Vault Folder Dropdown */}
+                <select
+                  value={vaultId}
+                  onChange={(e) => setVaultId(e.target.value)}
+                  className="px-3 py-2 bg-surface border border-border rounded-md text-text-main text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
+                >
+                  {availableVaults.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Save Button (No Icon, Text Only) */}
+                <button
+                  type="submit"
+                  form="vault-form"
+                  disabled={isSaving || !name || !password}
+                  className="px-6 py-2 bg-primary text-white text-sm font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center justify-center min-w-[80px]"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
+                </button>
+              </div>
             </div>
           </>
         )}
