@@ -235,6 +235,11 @@ mod tests {
             "Default tags were not created"
         );
 
+        // Verify profile name saved correctly
+        assert_eq!(
+            recovered_vault.profile_name, "Admin",
+            "Profile name was not saved/recovered correctly"
+        );
         // Cleanup
         let _ = fs::remove_file(test_file);
     }
