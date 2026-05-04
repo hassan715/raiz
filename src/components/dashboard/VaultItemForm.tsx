@@ -11,11 +11,11 @@ import {
   Tag,
   ChevronLeft,
   Key,
+  Lock,
   FileText,
   CreditCard,
   User,
   Wallet,
-  Landmark,
 } from 'lucide-react';
 import { Account, InnerVault } from '../../types';
 import { popularServices, ServiceTemplate } from '../../data/serviceDictionary';
@@ -30,7 +30,8 @@ interface VaultItemFormProps {
 
 // --- ITEM TYPES CONFIGURATION ---
 const ITEM_TYPES = [
-  { id: 'Login', name: 'Login', icon: Key, description: 'Passwords and web accounts' },
+  { id: 'Login', name: 'Login', icon: Key, description: 'Web accounts and portals' },
+  { id: 'Password', name: 'Password', icon: Lock, description: 'App passwords and API keys' },
   {
     id: 'Secure Note',
     name: 'Secure Note',
@@ -49,12 +50,6 @@ const ITEM_TYPES = [
     name: 'Crypto Wallet',
     icon: Wallet,
     description: 'Seed phrases and keys',
-  },
-  {
-    id: 'Bank Account',
-    name: 'Bank Account',
-    icon: Landmark,
-    description: 'Routing and account numbers',
   },
 ];
 
@@ -270,15 +265,12 @@ export default function VaultItemForm({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
         onClick={onClose}
       />
 
-      {/* Centered Modal */}
       <div className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-2xl h-[700px] max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
-        {/* Dynamic Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-background z-10 shrink-0">
           <div className="flex items-center">
             {step === 2 && !initialData && (
@@ -313,7 +305,6 @@ export default function VaultItemForm({
           </div>
         </div>
 
-        {/* STEP 1: ITEM TYPE SELECTOR */}
         {step === 1 && (
           <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-background">
             <p className="text-sm text-text-muted mb-6">
@@ -342,7 +333,6 @@ export default function VaultItemForm({
           </div>
         )}
 
-        {/* STEP 2: THE FORM */}
         {step === 2 && (
           <>
             <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-surface">
@@ -351,8 +341,6 @@ export default function VaultItemForm({
                 onSubmit={handleSave}
                 className="space-y-6 max-w-xl mx-auto w-full"
               >
-                {/* Vault folder selector has been moved to the footer */}
-
                 <div className="space-y-4 pt-2">
                   <div className="relative" ref={dropdownRef}>
                     <label className="block text-sm font-medium text-text-muted mb-1">
@@ -569,10 +557,8 @@ export default function VaultItemForm({
               </form>
             </div>
 
-            {/* NEW FOOTER LAYOUT: Vault Selector + Right-Aligned Save Button */}
             <div className="px-6 md:px-8 py-4 border-t border-border bg-background z-10 shrink-0">
               <div className="max-w-xl mx-auto w-full flex items-center justify-end space-x-3">
-                {/* Vault Folder Dropdown */}
                 <select
                   value={vaultId}
                   onChange={(e) => setVaultId(e.target.value)}
@@ -585,7 +571,6 @@ export default function VaultItemForm({
                   ))}
                 </select>
 
-                {/* Save Button (No Icon, Text Only) */}
                 <button
                   type="submit"
                   form="vault-form"
