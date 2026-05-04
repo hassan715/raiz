@@ -1,13 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Key, Settings, Folder, Plus, X, Loader2, ChevronDown, LogOut } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import {
+  Key,
+  Settings,
+  Folder,
+  Plus,
+  X,
+  Loader2,
+  ChevronDown,
+  LogOut,
+  Archive,
+} from 'lucide-react';
 import { InnerVault } from '../../types';
 import { useVault } from '../../context/VaultContext';
 
 interface AppShellProps {
   children: React.ReactNode;
-  activeView: 'vaults' | 'settings';
-  setActiveView: (view: 'vaults' | 'settings') => void;
+  activeView: 'vaults' | 'settings' | 'archived'; // <-- NEW: Added 'archived'
+  setActiveView: (view: 'vaults' | 'settings' | 'archived') => void;
   selectedVaultId: string | null;
   setSelectedVaultId: (id: string | null) => void;
 }
@@ -19,7 +29,7 @@ export default function AppShell({
   selectedVaultId,
   setSelectedVaultId,
 }: AppShellProps) {
-  const { lockVault } = useVault(); // Pulling the lock function from context
+  const { lockVault } = useVault();
   const [vaults, setVaults] = useState<InnerVault[]>([]);
   const [profileName, setProfileName] = useState('My Vault');
 
@@ -32,13 +42,11 @@ export default function AppShell({
   const [newVaultDescription, setNewVaultDescription] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
-  // Fetch initial data
   useEffect(() => {
     invoke<InnerVault[]>('get_vaults').then(setVaults).catch(console.error);
     invoke<string>('get_profile_name').then(setProfileName).catch(console.error);
   }, [activeView]);
 
-  // Handle clicking outside the profile menu to close it
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
@@ -162,12 +170,29 @@ export default function AppShell({
             </button>
           ))}
         </nav>
+
+        {/* ================= BOTTOM SYSTEM LINKS ================= */}
+        <div className="p-3 border-t border-border space-y-1">
+          <button
+            onClick={() => {
+              setActiveView('archived');
+              setSelectedVaultId(null);
+            }}
+            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+              activeView === 'archived'
+                ? 'bg-primary-muted text-primary'
+                : 'text-text-muted hover:bg-surface hover:text-text-main'
+            }`}
+          >
+            <Archive className="w-4 h-4 mr-3" /> Archived
+          </button>
+        </div>
       </aside>
 
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col relative overflow-y-auto">{children}</main>
 
-      {/* CREATE VAULT MODAL */}
+      {/* CREATE VAULT MODAL (Unchanged) */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div

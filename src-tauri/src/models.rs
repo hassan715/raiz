@@ -96,6 +96,7 @@ pub struct Metadata {
     pub created_at: u64, // Unix timestamp
     pub updated_at: u64,
     pub accessed_at: u64,
+    pub archived_at: Option<u64>,
 }
 
 #[cfg(test)]

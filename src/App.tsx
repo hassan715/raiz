@@ -9,7 +9,7 @@ import { ThemeProvider } from './context/ThemeContext';
 
 function App() {
   const { lockVault } = useVault();
-  const [activeView, setActiveView] = useState<'vaults' | 'settings'>('vaults');
+  const [activeView, setActiveView] = useState<'vaults' | 'settings' | 'archived'>('vaults');
 
   // Track the active vault filter (null means "All Vaults")
   const [selectedVaultId, setSelectedVaultId] = useState<string | null>(null);
@@ -37,8 +37,9 @@ function App() {
           selectedVaultId={selectedVaultId}
           setSelectedVaultId={setSelectedVaultId}
         >
-          {activeView === 'vaults' ? (
-            <VaultDashboard selectedVaultId={selectedVaultId} />
+          {/* Render the Dashboard for BOTH vaults and archived views! */}
+          {activeView === 'vaults' || activeView === 'archived' ? (
+            <VaultDashboard selectedVaultId={selectedVaultId} activeView={activeView} />
           ) : (
             <SettingsView lockTimeout={lockTimeout} setLockTimeout={setLockTimeout} />
           )}
