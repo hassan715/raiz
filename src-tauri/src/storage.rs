@@ -205,6 +205,7 @@ mod tests {
                 created_at: 0,
                 updated_at: 0,
                 accessed_at: 0,
+                archived_at: None,
             },
         };
 
