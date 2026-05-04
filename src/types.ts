@@ -2,6 +2,7 @@ export interface VaultMetadata {
   created_at: number;
   updated_at: number;
   accessed_at: number;
+  archived_at?: number | null;
 }
 
 export interface RecoveryCode {
