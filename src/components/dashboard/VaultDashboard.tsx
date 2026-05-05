@@ -17,7 +17,7 @@ import VaultItemDetail from './VaultItemDetail';
 
 interface VaultDashboardProps {
   selectedVaultId: string | null;
-  activeView: 'vaults' | 'settings' | 'archived'; // NEW: Added activeView to know what to display
+  activeView: 'vaults' | 'settings' | 'archived' | 'favorites'; // NEW: Added 'favorites'
 }
 
 export default function VaultDashboard({ selectedVaultId, activeView }: VaultDashboardProps) {
@@ -29,7 +29,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Archive state
   const [accountToArchive, setAccountToArchive] = useState<Account | null>(null);
   const [vaultName, setVaultName] = useState('All Vaults');
 
@@ -41,6 +40,8 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
 
       if (activeView === 'archived') {
         setVaultName('Archived Items');
+      } else if (activeView === 'favorites') {
+        setVaultName('Favorites'); // NEW: Set header for favorites
       } else if (selectedVaultId) {
         const vaults = await invoke<InnerVault[]>('get_vaults');
         const active = vaults.find((v) => v.id === selectedVaultId);
@@ -60,7 +61,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
     loadAccounts();
   }, [loadAccounts]);
 
-  // Archive & Restore Handlers
   const confirmArchive = async () => {
     if (!accountToArchive) return;
     try {
@@ -89,20 +89,21 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
     }
   };
 
-  // Filter logic (Archived Status + Vault ID + Search Query)
   const filteredAccounts = accounts.filter((acc) => {
     const isArchived = !!acc.metadata.archived_at;
 
     // 1. Check View Status
     if (activeView === 'archived') {
       if (!isArchived) return false;
+    } else if (activeView === 'favorites') {
+      // NEW: Hide archived items AND hide items that are not favorited
+      if (isArchived || !acc.is_favorite) return false;
     } else {
       if (isArchived) return false;
-      // 2. Check Vault (Only if we are in the active vaults view)
       if (selectedVaultId && acc.vault_id !== selectedVaultId) return false;
     }
 
-    // 3. Check Search string
+    // 2. Check Search string
     const matchesSearch =
       acc.account_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       acc.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -157,27 +158,38 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
           <div className="flex flex-col items-center justify-center h-64 text-text-muted border-2 border-dashed border-border rounded-xl">
             {activeView === 'archived' ? (
               <Archive className="w-12 h-12 mb-4 opacity-50" />
+            ) : activeView === 'favorites' ? (
+              <Star className="w-12 h-12 mb-4 opacity-50 text-warning" />
             ) : (
               <Key className="w-12 h-12 mb-4 opacity-50" />
             )}
             <p className="text-lg font-medium text-text-main mb-1">
-              {activeView === 'archived' ? 'No archived items' : 'No items found'}
+              {activeView === 'archived'
+                ? 'No archived items'
+                : activeView === 'favorites'
+                  ? 'No favorite items yet'
+                  : 'No items found'}
             </p>
             <p className="text-sm text-text-muted mb-4">
               {searchQuery
                 ? 'Try adjusting your search terms.'
                 : activeView === 'archived'
                   ? 'Items you archive will appear here safely out of the way.'
-                  : 'Get started by adding your first password.'}
+                  : activeView === 'favorites'
+                    ? 'Click the star icon on any item to add it to your favorites.'
+                    : 'Get started by adding your first password.'}
             </p>
           </div>
         ) : (
           <div className="space-y-8">
             {favoriteAccounts.length > 0 && (
               <div>
-                <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-4">
-                  Favorites
-                </h3>
+                {/* Only show the "Favorites" subheading if we aren't already in the global Favorites view */}
+                {activeView !== 'favorites' && (
+                  <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-4">
+                    Favorites
+                  </h3>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {favoriteAccounts.map((account) => (
                     <div
@@ -328,7 +340,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
         }}
       />
 
-      {/* ARCHIVE CONFIRMATION MODAL */}
       {accountToArchive && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div
