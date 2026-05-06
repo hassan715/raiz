@@ -17,7 +17,7 @@ import { useVault } from '../../context/VaultContext';
 
 interface AppShellProps {
   children: React.ReactNode;
-  activeView: 'vaults' | 'settings' | 'archived' | 'favorites'; // NEW: Added 'favorites'
+  activeView: 'vaults' | 'settings' | 'archived' | 'favorites';
   setActiveView: (view: 'vaults' | 'settings' | 'archived' | 'favorites') => void;
   selectedVaultId: string | null;
   setSelectedVaultId: (id: string | null) => void;
@@ -42,6 +42,9 @@ export default function AppShell({
   const [newVaultDescription, setNewVaultDescription] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
+  // NEW: Store validation errors from Rust
+  const [createError, setCreateError] = useState('');
+
   useEffect(() => {
     invoke<InnerVault[]>('get_vaults').then(setVaults).catch(console.error);
     invoke<string>('get_profile_name').then(setProfileName).catch(console.error);
@@ -59,22 +62,35 @@ export default function AppShell({
 
   const handleCreateVaultSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newVaultName.trim()) return;
+    setCreateError(''); // Clear old errors
+    const trimmedName = newVaultName.trim();
+    if (!trimmedName) return;
+
+    // Optional fast-fail frontend check
+    if (vaults.some((v) => v.name.toLowerCase() === trimmedName.toLowerCase())) {
+      setCreateError(`A vault named '${trimmedName}' already exists.`);
+      return;
+    }
 
     setIsCreating(true);
     try {
-      await invoke('create_inner_vault', { name: newVaultName, description: newVaultDescription });
+      await invoke('create_inner_vault', { name: trimmedName, description: newVaultDescription });
       const updated = await invoke<InnerVault[]>('get_vaults');
       setVaults(updated);
-      setIsCreateModalOpen(false);
-      setNewVaultName('');
-      setNewVaultDescription('');
+      handleCloseModal();
     } catch (error) {
-      console.error('Failed to create vault', error);
-      alert('Failed to create vault.');
+      // Display the Rust error message nicely in the modal
+      setCreateError(error as string);
     } finally {
       setIsCreating(false);
     }
+  };
+
+  const handleCloseModal = () => {
+    setIsCreateModalOpen(false);
+    setNewVaultName('');
+    setNewVaultDescription('');
+    setCreateError('');
   };
 
   return (
@@ -137,7 +153,6 @@ export default function AppShell({
             <Key className="w-4 h-4 mr-3" /> All Vaults
           </button>
 
-          {/* NEW: Favorites Button */}
           <button
             onClick={() => {
               setActiveView('favorites');
@@ -206,18 +221,19 @@ export default function AppShell({
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsCreateModalOpen(false)}
+            onClick={handleCloseModal}
           />
           <div className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-text-main">Create New Vault</h2>
               <button
-                onClick={() => setIsCreateModalOpen(false)}
+                onClick={handleCloseModal}
                 className="p-1 text-text-muted hover:text-text-main rounded-md hover:bg-background transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+
             <form onSubmit={handleCreateVaultSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-text-muted mb-1">
@@ -226,13 +242,17 @@ export default function AppShell({
                 <input
                   type="text"
                   value={newVaultName}
-                  onChange={(e) => setNewVaultName(e.target.value)}
+                  onChange={(e) => {
+                    setNewVaultName(e.target.value);
+                    if (createError) setCreateError('');
+                  }}
                   className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors"
                   placeholder="e.g., Work, Finance, Travel"
                   autoFocus
                   required
                 />
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-text-muted mb-1">
                   Description (Optional)
@@ -245,10 +265,18 @@ export default function AppShell({
                   rows={3}
                 />
               </div>
+
+              {/* NEW: Inline Error Box */}
+              {createError && (
+                <div className="p-3 bg-danger/10 border border-danger/20 rounded-md animate-in fade-in">
+                  <p className="text-sm text-danger font-medium text-center">{createError}</p>
+                </div>
+              )}
+
               <div className="pt-2 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsCreateModalOpen(false)}
+                  onClick={handleCloseModal}
                   className="px-4 py-2 text-sm font-medium text-text-main hover:bg-background border border-transparent rounded-md transition-colors"
                 >
                   Cancel
