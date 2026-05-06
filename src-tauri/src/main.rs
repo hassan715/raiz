@@ -299,27 +299,24 @@ fn get_vaults(state: tauri::State<'_, AppState>) -> Result<Vec<models::InnerVaul
 #[tauri::command]
 fn create_inner_vault(
     name: String,
-    description: Option<String>, // NEW: Accept description
+    description: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let mut vault_guard = state.vault.lock().unwrap();
     let dek_guard = state.dek.lock().unwrap();
 
     if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
-        let clean_name = name.trim().to_string();
-        if !clean_name.is_empty() {
-            // Clean up the description string if it exists
-            let clean_desc = description
-                .map(|d| d.trim().to_string())
-                .filter(|d| !d.is_empty());
+        let desc_opt = if description.trim().is_empty() {
+            None
+        } else {
+            Some(description)
+        };
 
-            vault.vaults.push(models::InnerVault {
-                id: uuid::Uuid::new_v4(),
-                name: clean_name,
-                description: clean_desc,
-            });
-            storage::update_vault(vault, dek, &state.file_path)?;
-        }
+        // Use our fully-tested model logic to safely add the vault
+        vault.add_inner_vault(&name, desc_opt)?;
+
+        // Save the updated vault to disk
+        crate::storage::update_vault(vault, dek, &state.file_path)?;
         Ok(())
     } else {
         Err("Vault is locked.".to_string())

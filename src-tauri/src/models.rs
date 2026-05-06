@@ -60,6 +60,35 @@ impl Vault {
             vaults: default_inner_vaults(),
         }
     }
+
+    /// Adds a new inner vault, ensuring the name is unique (case-insensitive).
+    pub fn add_inner_vault(
+        &mut self,
+        name: &str,
+        description: Option<String>,
+    ) -> Result<(), String> {
+        let clean_name = name.trim();
+        if clean_name.is_empty() {
+            return Err("Vault name cannot be empty.".to_string());
+        }
+
+        // Case-insensitive duplicate check
+        if self
+            .vaults
+            .iter()
+            .any(|v| v.name.eq_ignore_ascii_case(clean_name))
+        {
+            return Err(format!("A vault named '{}' already exists.", clean_name));
+        }
+
+        self.vaults.push(InnerVault {
+            id: Uuid::new_v4(),
+            name: clean_name.to_string(),
+            description,
+        });
+
+        Ok(())
+    }
 }
 
 /// Represents a single saved credential (e.g., GitHub, Gmail, Instagram).
@@ -125,5 +154,31 @@ mod tests {
             vaults[0].description,
             Some("Default personal vault".to_string())
         );
+    }
+
+    #[test]
+    fn test_add_inner_vault_duplicate_prevention() {
+        let mut vault = Vault::new();
+        let initial_len = vault.vaults.len();
+
+        // 1. Test adding a valid new vault
+        let res1 = vault.add_inner_vault("Work", Some("Work stuff".to_string()));
+        assert!(res1.is_ok());
+        assert_eq!(vault.vaults.len(), initial_len + 1);
+
+        // 2. Test exact duplicate
+        let res2 = vault.add_inner_vault("Work", None);
+        assert!(res2.is_err());
+        assert_eq!(res2.unwrap_err(), "A vault named 'Work' already exists.");
+
+        // 3. Test case-insensitive duplicate (e.g., user types "wOrK")
+        let res3 = vault.add_inner_vault("wOrK", None);
+        assert!(res3.is_err());
+        assert_eq!(res3.unwrap_err(), "A vault named 'wOrK' already exists.");
+
+        // 4. Test empty name rejection
+        let res4 = vault.add_inner_vault("   ", None);
+        assert!(res4.is_err());
+        assert_eq!(res4.unwrap_err(), "Vault name cannot be empty.");
     }
 }
