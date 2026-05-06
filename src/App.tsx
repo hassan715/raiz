@@ -9,23 +9,23 @@ import { ThemeProvider } from './context/ThemeContext';
 
 function App() {
   const { lockVault } = useVault();
-  const [activeView, setActiveView] = useState<'vaults' | 'settings' | 'archived'>('vaults');
 
-  // Track the active vault filter (null means "All Vaults")
+  // NEW: Added 'favorites' to the allowed views
+  const [activeView, setActiveView] = useState<'vaults' | 'settings' | 'archived' | 'favorites'>(
+    'vaults'
+  );
+
   const [selectedVaultId, setSelectedVaultId] = useState<string | null>(null);
 
-  // Load the saved timeout from local storage (default to 5 minutes)
   const [lockTimeout, setLockTimeout] = useState<number>(() => {
     const saved = localStorage.getItem('raiz_auto_lock');
     return saved ? parseInt(saved, 10) : 5;
   });
 
-  // When lockTimeout changes, save it to local storage
   useEffect(() => {
     localStorage.setItem('raiz_auto_lock', lockTimeout.toString());
   }, [lockTimeout]);
 
-  // ACTIVATE THE INVISIBLE WATCHER
   useIdleTimeout(lockTimeout, lockVault);
 
   return (
@@ -37,8 +37,8 @@ function App() {
           selectedVaultId={selectedVaultId}
           setSelectedVaultId={setSelectedVaultId}
         >
-          {/* Render the Dashboard for BOTH vaults and archived views! */}
-          {activeView === 'vaults' || activeView === 'archived' ? (
+          {/* Render the Dashboard for vaults, archived, AND favorites views */}
+          {activeView === 'vaults' || activeView === 'archived' || activeView === 'favorites' ? (
             <VaultDashboard selectedVaultId={selectedVaultId} activeView={activeView} />
           ) : (
             <SettingsView lockTimeout={lockTimeout} setLockTimeout={setLockTimeout} />

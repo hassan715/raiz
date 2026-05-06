@@ -10,14 +10,15 @@ import {
   ChevronDown,
   LogOut,
   Archive,
+  Star,
 } from 'lucide-react';
 import { InnerVault } from '../../types';
 import { useVault } from '../../context/VaultContext';
 
 interface AppShellProps {
   children: React.ReactNode;
-  activeView: 'vaults' | 'settings' | 'archived'; // <-- NEW: Added 'archived'
-  setActiveView: (view: 'vaults' | 'settings' | 'archived') => void;
+  activeView: 'vaults' | 'settings' | 'archived' | 'favorites'; // NEW: Added 'favorites'
+  setActiveView: (view: 'vaults' | 'settings' | 'archived' | 'favorites') => void;
   selectedVaultId: string | null;
   setSelectedVaultId: (id: string | null) => void;
 }
@@ -33,7 +34,6 @@ export default function AppShell({
   const [vaults, setVaults] = useState<InnerVault[]>([]);
   const [profileName, setProfileName] = useState('My Vault');
 
-  // Profile & Modal State
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
@@ -80,7 +80,6 @@ export default function AppShell({
   return (
     <div className="flex h-screen w-full bg-background text-text-main overflow-hidden">
       <aside className="w-64 bg-sidebar border-r border-border flex flex-col z-10 relative">
-        {/* ================= PROFILE HEADER & DROPDOWN ================= */}
         <div className="relative" ref={profileMenuRef}>
           <button
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
@@ -99,7 +98,6 @@ export default function AppShell({
             />
           </button>
 
-          {/* Absolute Positioned Profile Menu */}
           {isProfileMenuOpen && (
             <div className="absolute top-14 left-2 right-2 bg-surface border border-border rounded-lg shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-2">
               <button
@@ -124,7 +122,6 @@ export default function AppShell({
           )}
         </div>
 
-        {/* ================= NAVIGATION ================= */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
           <button
             onClick={() => {
@@ -138,6 +135,21 @@ export default function AppShell({
             }`}
           >
             <Key className="w-4 h-4 mr-3" /> All Vaults
+          </button>
+
+          {/* NEW: Favorites Button */}
+          <button
+            onClick={() => {
+              setActiveView('favorites');
+              setSelectedVaultId(null);
+            }}
+            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+              activeView === 'favorites'
+                ? 'bg-primary-muted text-primary'
+                : 'text-text-muted hover:bg-surface hover:text-text-main'
+            }`}
+          >
+            <Star className="w-4 h-4 mr-3" /> Favorites
           </button>
 
           <div className="pt-4 pb-1 px-3 flex items-center justify-between">
@@ -171,7 +183,6 @@ export default function AppShell({
           ))}
         </nav>
 
-        {/* ================= BOTTOM SYSTEM LINKS ================= */}
         <div className="p-3 border-t border-border space-y-1">
           <button
             onClick={() => {
@@ -189,10 +200,8 @@ export default function AppShell({
         </div>
       </aside>
 
-      {/* MAIN CONTENT AREA */}
       <main className="flex-1 flex flex-col relative overflow-y-auto">{children}</main>
 
-      {/* CREATE VAULT MODAL (Unchanged) */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div

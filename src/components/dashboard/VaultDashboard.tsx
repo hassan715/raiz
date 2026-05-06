@@ -17,7 +17,7 @@ import VaultItemDetail from './VaultItemDetail';
 
 interface VaultDashboardProps {
   selectedVaultId: string | null;
-  activeView: 'vaults' | 'settings' | 'archived'; // NEW: Added activeView to know what to display
+  activeView: 'vaults' | 'settings' | 'archived' | 'favorites';
 }
 
 export default function VaultDashboard({ selectedVaultId, activeView }: VaultDashboardProps) {
@@ -29,7 +29,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Archive state
   const [accountToArchive, setAccountToArchive] = useState<Account | null>(null);
   const [vaultName, setVaultName] = useState('All Vaults');
 
@@ -41,6 +40,8 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
 
       if (activeView === 'archived') {
         setVaultName('Archived Items');
+      } else if (activeView === 'favorites') {
+        setVaultName('Favorites');
       } else if (selectedVaultId) {
         const vaults = await invoke<InnerVault[]>('get_vaults');
         const active = vaults.find((v) => v.id === selectedVaultId);
@@ -60,7 +61,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
     loadAccounts();
   }, [loadAccounts]);
 
-  // Archive & Restore Handlers
   const confirmArchive = async () => {
     if (!accountToArchive) return;
     try {
@@ -89,20 +89,20 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
     }
   };
 
-  // Filter logic (Archived Status + Vault ID + Search Query)
   const filteredAccounts = accounts.filter((acc) => {
     const isArchived = !!acc.metadata.archived_at;
 
     // 1. Check View Status
     if (activeView === 'archived') {
       if (!isArchived) return false;
+    } else if (activeView === 'favorites') {
+      if (isArchived || !acc.is_favorite) return false;
     } else {
       if (isArchived) return false;
-      // 2. Check Vault (Only if we are in the active vaults view)
       if (selectedVaultId && acc.vault_id !== selectedVaultId) return false;
     }
 
-    // 3. Check Search string
+    // 2. Check Search string
     const matchesSearch =
       acc.account_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       acc.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -111,9 +111,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
 
     return matchesSearch;
   });
-
-  const favoriteAccounts = filteredAccounts.filter((acc) => acc.is_favorite);
-  const regularAccounts = filteredAccounts.filter((acc) => !acc.is_favorite);
 
   return (
     <div className="flex flex-col h-full bg-background relative">
@@ -157,142 +154,86 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
           <div className="flex flex-col items-center justify-center h-64 text-text-muted border-2 border-dashed border-border rounded-xl">
             {activeView === 'archived' ? (
               <Archive className="w-12 h-12 mb-4 opacity-50" />
+            ) : activeView === 'favorites' ? (
+              <Star className="w-12 h-12 mb-4 opacity-50 text-warning" />
             ) : (
               <Key className="w-12 h-12 mb-4 opacity-50" />
             )}
             <p className="text-lg font-medium text-text-main mb-1">
-              {activeView === 'archived' ? 'No archived items' : 'No items found'}
+              {activeView === 'archived'
+                ? 'No archived items'
+                : activeView === 'favorites'
+                  ? 'No favorite items yet'
+                  : 'No items found'}
             </p>
             <p className="text-sm text-text-muted mb-4">
               {searchQuery
                 ? 'Try adjusting your search terms.'
                 : activeView === 'archived'
                   ? 'Items you archive will appear here safely out of the way.'
-                  : 'Get started by adding your first password.'}
+                  : activeView === 'favorites'
+                    ? 'Click the star icon on any item to add it to your favorites.'
+                    : 'Get started by adding your first password.'}
             </p>
           </div>
         ) : (
-          <div className="space-y-8">
-            {favoriteAccounts.length > 0 && (
-              <div>
-                <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-4">
-                  Favorites
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {favoriteAccounts.map((account) => (
-                    <div
-                      key={account.id}
-                      onClick={() => setSelectedAccount(account)}
-                      className="group relative p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredAccounts.map((account) => (
+              <div
+                key={account.id}
+                onClick={() => setSelectedAccount(account)}
+                className="group relative p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
+              >
+                <div className="absolute top-2 right-2 flex items-center space-x-1">
+                  {/* Archive / Restore Buttons */}
+                  {activeView === 'archived' ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRestore(account);
+                      }}
+                      className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-background rounded-md transition-all text-text-muted hover:text-success"
+                      title="Restore"
                     >
-                      <div className="absolute top-2 right-2 flex items-center space-x-1">
-                        {activeView === 'archived' ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRestore(account);
-                            }}
-                            className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-background rounded-md transition-all text-text-muted hover:text-success"
-                            title="Restore"
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAccountToArchive(account);
-                            }}
-                            className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-background rounded-md transition-all text-text-muted hover:text-warning"
-                            title="Archive"
-                          >
-                            <Archive className="w-4 h-4" />
-                          </button>
-                        )}
-                        <Star className="w-4 h-4 text-warning fill-warning opacity-80 m-1.5" />
-                      </div>
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAccountToArchive(account);
+                      }}
+                      className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-background rounded-md transition-all text-text-muted hover:text-warning"
+                      title="Archive"
+                    >
+                      <Archive className="w-4 h-4" />
+                    </button>
+                  )}
 
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 bg-background border border-border rounded-lg flex items-center justify-center text-text-muted group-hover:text-primary transition-colors overflow-hidden shrink-0">
-                            <BrandIcon name={account.account_name} className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-semibold text-text-main pr-16 truncate">
-                              {account.account_name}
-                            </h3>
-                            <p className="text-xs text-text-muted truncate max-w-[150px]">
-                              {account.username || account.email || account.account_type}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
+                  {/* Favorited Star Icon */}
+                  {account.is_favorite && (
+                    <Star className="w-4 h-4 text-warning fill-warning opacity-80 m-1.5" />
+                  )}
+                </div>
+
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-background border border-border rounded-lg flex items-center justify-center text-text-muted group-hover:text-primary transition-colors overflow-hidden shrink-0">
+                      <BrandIcon name={account.account_name} className="w-5 h-5" />
                     </div>
-                  ))}
+                    <div>
+                      {/* Added extra padding-right (pr-16) to avoid text overlapping the absolute icons */}
+                      <h3 className="text-sm font-semibold text-text-main pr-16 truncate">
+                        {account.account_name}
+                      </h3>
+                      <p className="text-xs text-text-muted truncate max-w-[150px]">
+                        {account.username || account.email || account.account_type}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
-
-            {regularAccounts.length > 0 && (
-              <div>
-                {favoriteAccounts.length > 0 && (
-                  <h3 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-4">
-                    All Items
-                  </h3>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {regularAccounts.map((account) => (
-                    <div
-                      key={account.id}
-                      onClick={() => setSelectedAccount(account)}
-                      className="group relative p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
-                    >
-                      <div className="absolute top-2 right-2 flex items-center space-x-1">
-                        {activeView === 'archived' ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRestore(account);
-                            }}
-                            className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-background rounded-md transition-all text-text-muted hover:text-success"
-                            title="Restore"
-                          >
-                            <RefreshCw className="w-4 h-4" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAccountToArchive(account);
-                            }}
-                            className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-background rounded-md transition-all text-text-muted hover:text-warning"
-                            title="Archive"
-                          >
-                            <Archive className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-10 h-10 bg-background border border-border rounded-lg flex items-center justify-center text-text-muted group-hover:text-primary transition-colors overflow-hidden shrink-0">
-                            <BrandIcon name={account.account_name} className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-semibold text-text-main pr-10 truncate">
-                              {account.account_name}
-                            </h3>
-                            <p className="text-xs text-text-muted truncate max-w-[150px]">
-                              {account.username || account.email || account.account_type}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            ))}
           </div>
         )}
       </div>
