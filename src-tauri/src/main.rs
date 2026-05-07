@@ -336,15 +336,7 @@ fn edit_inner_vault(
     let dek_guard = state.dek.lock().unwrap();
 
     if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
-        let desc_opt = if let Some(d) = description {
-            if d.trim().is_empty() {
-                None
-            } else {
-                Some(d)
-            }
-        } else {
-            None
-        };
+        let desc_opt = description.filter(|d| !d.trim().is_empty());
 
         vault.update_inner_vault(uuid, &name, desc_opt)?;
         crate::storage::update_vault(vault, dek, &state.file_path)?;
