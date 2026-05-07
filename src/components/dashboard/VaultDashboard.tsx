@@ -59,6 +59,16 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
 
   useEffect(() => {
     loadAccounts();
+
+    //  Listen for the custom event from AppShell to silently refresh accounts
+    const handleVaultDeleted = () => {
+      loadAccounts();
+    };
+    window.addEventListener('vault-deleted', handleVaultDeleted);
+
+    return () => {
+      window.removeEventListener('vault-deleted', handleVaultDeleted);
+    };
   }, [loadAccounts]);
 
   const confirmArchive = async () => {
@@ -92,7 +102,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
   const filteredAccounts = accounts.filter((acc) => {
     const isArchived = !!acc.metadata.archived_at;
 
-    // 1. Check View Status
     if (activeView === 'archived') {
       if (!isArchived) return false;
     } else if (activeView === 'favorites') {
@@ -102,7 +111,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
       if (selectedVaultId && acc.vault_id !== selectedVaultId) return false;
     }
 
-    // 2. Check Search string
     const matchesSearch =
       acc.account_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       acc.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -185,7 +193,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
                 className="group relative p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
               >
                 <div className="absolute top-2 right-2 flex items-center space-x-1">
-                  {/* Archive / Restore Buttons */}
                   {activeView === 'archived' ? (
                     <button
                       onClick={(e) => {
@@ -209,8 +216,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
                       <Archive className="w-4 h-4" />
                     </button>
                   )}
-
-                  {/* Favorited Star Icon */}
                   {account.is_favorite && (
                     <Star className="w-4 h-4 text-warning fill-warning opacity-80 m-1.5" />
                   )}
@@ -222,7 +227,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
                       <BrandIcon name={account.account_name} className="w-5 h-5" />
                     </div>
                     <div>
-                      {/* Added extra padding-right (pr-16) to avoid text overlapping the absolute icons */}
                       <h3 className="text-sm font-semibold text-text-main pr-16 truncate">
                         {account.account_name}
                       </h3>
@@ -269,7 +273,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
         }}
       />
 
-      {/* ARCHIVE CONFIRMATION MODAL */}
       {accountToArchive && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div

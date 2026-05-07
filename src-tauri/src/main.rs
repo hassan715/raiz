@@ -325,6 +325,53 @@ fn create_inner_vault(
 
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
+fn edit_inner_vault(
+    id: String,
+    name: String,
+    description: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let uuid = uuid::Uuid::parse_str(&id).map_err(|_| "Invalid vault ID".to_string())?;
+    let mut vault_guard = state.vault.lock().unwrap();
+    let dek_guard = state.dek.lock().unwrap();
+
+    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        let desc_opt = if let Some(d) = description {
+            if d.trim().is_empty() {
+                None
+            } else {
+                Some(d)
+            }
+        } else {
+            None
+        };
+
+        vault.update_inner_vault(uuid, &name, desc_opt)?;
+        crate::storage::update_vault(vault, dek, &state.file_path)?;
+        Ok(())
+    } else {
+        Err("Vault is locked.".to_string())
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn delete_inner_vault(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let uuid = uuid::Uuid::parse_str(&id).map_err(|_| "Invalid vault ID".to_string())?;
+    let mut vault_guard = state.vault.lock().unwrap();
+    let dek_guard = state.dek.lock().unwrap();
+
+    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        vault.delete_inner_vault(uuid)?;
+        crate::storage::update_vault(vault, dek, &state.file_path)?;
+        Ok(())
+    } else {
+        Err("Vault is locked.".to_string())
+    }
+}
+
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
 fn get_profile_name(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let vault_guard = state.vault.lock().unwrap();
     match &*vault_guard {
@@ -382,6 +429,8 @@ fn main() {
             delete_global_tag,
             get_vaults,
             create_inner_vault,
+            edit_inner_vault,
+            delete_inner_vault,
             get_profile_name,
             update_profile_name
         ])
