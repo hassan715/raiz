@@ -89,6 +89,59 @@ impl Vault {
 
         Ok(())
     }
+
+    /// Edits an existing inner vault, ensuring the new name doesn't conflict.
+    pub fn update_inner_vault(
+        &mut self,
+        id: Uuid,
+        new_name: &str,
+        description: Option<String>,
+    ) -> Result<(), String> {
+        if id.is_nil() {
+            return Err("Cannot edit the default Personal vault.".to_string());
+        }
+
+        let clean_name = new_name.trim();
+        if clean_name.is_empty() {
+            return Err("Vault name cannot be empty.".to_string());
+        }
+
+        // Check for duplicates (excluding the vault we are currently editing)
+        if self
+            .vaults
+            .iter()
+            .any(|v| v.id != id && v.name.eq_ignore_ascii_case(clean_name))
+        {
+            return Err(format!("A vault named '{}' already exists.", clean_name));
+        }
+
+        if let Some(vault) = self.vaults.iter_mut().find(|v| v.id == id) {
+            vault.name = clean_name.to_string();
+            vault.description = description;
+            Ok(())
+        } else {
+            Err("Vault not found.".to_string())
+        }
+    }
+
+    /// Deletes an inner vault and CASCADE DELETES all accounts within it.
+    pub fn delete_inner_vault(&mut self, id: Uuid) -> Result<(), String> {
+        if id.is_nil() {
+            return Err("Cannot delete the default Personal vault.".to_string());
+        }
+
+        let initial_len = self.vaults.len();
+        self.vaults.retain(|v| v.id != id);
+
+        if self.vaults.len() == initial_len {
+            return Err("Vault not found.".to_string());
+        }
+
+        // Cascade Delete: Remove all accounts that belonged to this vault
+        self.accounts.retain(|acc| acc.vault_id != Some(id));
+
+        Ok(())
+    }
 }
 
 /// Represents a single saved credential (e.g., GitHub, Gmail, Instagram).
@@ -180,5 +233,60 @@ mod tests {
         let res4 = vault.add_inner_vault("   ", None);
         assert!(res4.is_err());
         assert_eq!(res4.unwrap_err(), "Vault name cannot be empty.");
+    }
+
+    #[test]
+    fn test_update_and_delete_vault() {
+        let mut vault = Vault::new();
+
+        // Cannot delete or update default vault
+        assert!(vault.delete_inner_vault(Uuid::nil()).is_err());
+        assert!(vault
+            .update_inner_vault(Uuid::nil(), "Hacked", None)
+            .is_err());
+
+        // Create two custom vaults for testing
+        vault.add_inner_vault("Work", None).unwrap();
+        vault.add_inner_vault("Finance", None).unwrap();
+
+        let work_id = vault.vaults.iter().find(|v| v.name == "Work").unwrap().id;
+
+        // 1. Update with empty name
+        let res_empty = vault.update_inner_vault(work_id, "   ", None);
+        assert!(res_empty.is_err());
+        assert_eq!(res_empty.unwrap_err(), "Vault name cannot be empty.");
+
+        // 2. Update to a duplicate name (tests case-insensitivity too)
+        let res_dup = vault.update_inner_vault(work_id, "fInAnCe", None);
+        assert!(res_dup.is_err());
+        assert_eq!(
+            res_dup.unwrap_err(),
+            "A vault named 'fInAnCe' already exists."
+        );
+
+        // 3. Update a non-existent vault
+        let fake_id = Uuid::new_v4();
+        let res_fake_update = vault.update_inner_vault(fake_id, "Ghost", None);
+        assert!(res_fake_update.is_err());
+        assert_eq!(res_fake_update.unwrap_err(), "Vault not found.");
+
+        // 4. Delete a non-existent vault
+        let res_fake_delete = vault.delete_inner_vault(fake_id);
+        assert!(res_fake_delete.is_err());
+        assert_eq!(res_fake_delete.unwrap_err(), "Vault not found.");
+
+        // --- THE SUCCESS TESTS ---
+
+        // Test updating successfully
+        let res = vault.update_inner_vault(work_id, "Office", Some("Desc".to_string()));
+        assert!(res.is_ok());
+        assert_eq!(
+            vault.vaults.iter().find(|v| v.id == work_id).unwrap().name,
+            "Office"
+        );
+
+        // Test cascade delete successfully
+        vault.delete_inner_vault(work_id).unwrap();
+        assert!(!vault.vaults.iter().any(|v| v.id == work_id));
     }
 }
