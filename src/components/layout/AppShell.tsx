@@ -73,6 +73,11 @@ export default function AppShell({
     return () => document.removeEventListener('mousedown', handleDocumentClick);
   }, []);
 
+  // Dispatches an event to nullify the open item details pane ---
+  const clearSelection = () => {
+    window.dispatchEvent(new Event('clear-selected-account'));
+  };
+
   const handleCreateVaultSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError('');
@@ -173,12 +178,11 @@ export default function AppShell({
 
       if (selectedVaultId === vaultToDelete.id) {
         setSelectedVaultId(null);
+        clearSelection(); // Clear details pane if the open folder was deleted
       }
 
       fetchVaults();
       setIsDeleteModalOpen(false);
-
-      // Dispatch custom event to trigger dashboard refresh without locking the app
       window.dispatchEvent(new Event('vault-deleted'));
     } catch (error) {
       setDeleteError(error as string);
@@ -212,6 +216,7 @@ export default function AppShell({
             <div className="absolute top-14 left-2 right-2 bg-surface border border-border rounded-lg shadow-xl px-2 py-1.5 z-50 animate-in fade-in slide-in-from-top-2">
               <button
                 onClick={() => {
+                  clearSelection();
                   setActiveView('settings');
                   setIsProfileMenuOpen(false);
                 }}
@@ -233,6 +238,7 @@ export default function AppShell({
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
           <button
             onClick={() => {
+              clearSelection();
               setActiveView('vaults');
               setSelectedVaultId(null);
             }}
@@ -247,6 +253,7 @@ export default function AppShell({
 
           <button
             onClick={() => {
+              clearSelection();
               setActiveView('favorites');
               setSelectedVaultId(null);
             }}
@@ -276,6 +283,7 @@ export default function AppShell({
             <button
               key={vault.id}
               onClick={() => {
+                clearSelection();
                 setActiveView('vaults');
                 setSelectedVaultId(vault.id);
               }}
@@ -294,6 +302,7 @@ export default function AppShell({
         <div className="p-3 border-t border-border space-y-1">
           <button
             onClick={() => {
+              clearSelection();
               setActiveView('archived');
               setSelectedVaultId(null);
             }}

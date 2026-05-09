@@ -66,8 +66,13 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
     const handleVaultDeleted = () => loadAccounts(false);
     window.addEventListener('vault-deleted', handleVaultDeleted);
 
+    // Clear the selected account pane when clicking sidebar folders
+    const handleClearSelection = () => setSelectedAccount(null);
+    window.addEventListener('clear-selected-account', handleClearSelection);
+
     return () => {
       window.removeEventListener('vault-deleted', handleVaultDeleted);
+      window.removeEventListener('clear-selected-account', handleClearSelection);
     };
   }, [loadAccounts]);
 
