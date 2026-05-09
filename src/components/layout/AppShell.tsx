@@ -189,7 +189,7 @@ export default function AppShell({
 
   return (
     <div className="flex h-screen w-full bg-background text-text-main overflow-hidden">
-      <aside className="w-64 bg-sidebar border-r border-border flex flex-col z-10 relative">
+      <aside className="w-52 bg-sidebar border-r border-border flex flex-col z-10 relative">
         <div className="relative" ref={profileMenuRef}>
           <button
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
@@ -314,7 +314,7 @@ export default function AppShell({
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed z-[60] w-40 bg-surface border border-border rounded-lg shadow-xl p-1 animate-in fade-in slide-in-from-top-1"
+          className="fixed z-60 w-40 bg-surface border border-border rounded-lg shadow-xl p-1 animate-in fade-in slide-in-from-top-1"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -340,7 +340,7 @@ export default function AppShell({
 
       {/* --- EDIT VAULT MODAL --- */}
       {isEditModalOpen && vaultToEdit && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center">
+        <div className="fixed inset-0 z-70 flex items-center justify-center">
           <div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
             onClick={() => setIsEditModalOpen(false)}
@@ -410,7 +410,7 @@ export default function AppShell({
 
       {/* --- DELETE VAULT WARNING MODAL --- */}
       {isDeleteModalOpen && vaultToDelete && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
             onClick={() => setIsDeleteModalOpen(false)}
@@ -457,7 +457,7 @@ export default function AppShell({
 
       {/* --- CREATE VAULT MODAL --- */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-[50] flex items-center justify-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
             onClick={() => {
