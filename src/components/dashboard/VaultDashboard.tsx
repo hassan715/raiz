@@ -1,15 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import {
-  Search,
-  Plus,
-  Key,
-  ShieldAlert,
-  Star,
-  Archive,
-  RefreshCw,
-  AlertTriangle,
-} from 'lucide-react';
+import { Search, Plus, Key, ShieldAlert, Star, Archive, Fingerprint } from 'lucide-react';
 import { Account, InnerVault } from '../../types';
 import VaultItemForm from './VaultItemForm';
 import BrandIcon from './BrandIcon';
@@ -29,75 +20,56 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [accountToArchive, setAccountToArchive] = useState<Account | null>(null);
   const [vaultName, setVaultName] = useState('All Vaults');
 
-  const loadAccounts = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const data = await invoke<Account[]>('get_accounts');
-      setAccounts(data);
+  const loadAccounts = useCallback(
+    async (showSpinner = true) => {
+      if (showSpinner) setIsLoading(true);
+      try {
+        const data = await invoke<Account[]>('get_accounts');
+        setAccounts(data);
 
-      if (activeView === 'archived') {
-        setVaultName('Archived Items');
-      } else if (activeView === 'favorites') {
-        setVaultName('Favorites');
-      } else if (selectedVaultId) {
-        const vaults = await invoke<InnerVault[]>('get_vaults');
-        const active = vaults.find((v) => v.id === selectedVaultId);
-        setVaultName(active ? active.name : 'All Vaults');
-      } else {
-        setVaultName('All Vaults');
+        // FIX: Safely auto-sync the selected item with the fresh data from the backend.
+        // Because we use the `(current) =>` callback, this prevents the race condition
+        // where closing a pane and refreshing data happen at the exact same time.
+        setSelectedAccount((current) => {
+          if (!current) return null;
+          return data.find((a) => a.id === current.id) || null;
+        });
+
+        if (activeView === 'archived') {
+          setVaultName('Archived Items');
+        } else if (activeView === 'favorites') {
+          setVaultName('Favorites');
+        } else if (selectedVaultId) {
+          const vaults = await invoke<InnerVault[]>('get_vaults');
+          const active = vaults.find((v) => v.id === selectedVaultId);
+          setVaultName(active ? active.name : 'All Vaults');
+        } else {
+          setVaultName('All Vaults');
+        }
+      } catch (error) {
+        const err = error as Error;
+        setError(err.toString());
+      } finally {
+        if (showSpinner) setIsLoading(false);
       }
-    } catch (error) {
-      const err = error as Error;
-      setError(err.toString());
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedVaultId, activeView]);
+    },
+    [selectedVaultId, activeView]
+  );
 
   useEffect(() => {
-    loadAccounts();
+    // Show spinner on initial load or view change
+    loadAccounts(true);
 
-    //  Listen for the custom event from AppShell to silently refresh accounts
-    const handleVaultDeleted = () => {
-      loadAccounts();
-    };
+    // Silently refresh when a vault is deleted from the sidebar
+    const handleVaultDeleted = () => loadAccounts(false);
     window.addEventListener('vault-deleted', handleVaultDeleted);
 
     return () => {
       window.removeEventListener('vault-deleted', handleVaultDeleted);
     };
   }, [loadAccounts]);
-
-  const confirmArchive = async () => {
-    if (!accountToArchive) return;
-    try {
-      const updatedAccount = {
-        ...accountToArchive,
-        metadata: { ...accountToArchive.metadata, archived_at: Date.now() },
-      };
-      await invoke('save_account', { account: updatedAccount });
-      setAccountToArchive(null);
-      loadAccounts();
-    } catch (err) {
-      console.error('Failed to archive:', err);
-    }
-  };
-
-  const handleRestore = async (account: Account) => {
-    try {
-      const updatedAccount = {
-        ...account,
-        metadata: { ...account.metadata, archived_at: null },
-      };
-      await invoke('save_account', { account: updatedAccount });
-      loadAccounts();
-    } catch (err) {
-      console.error('Failed to restore:', err);
-    }
-  };
 
   const filteredAccounts = accounts.filter((acc) => {
     const isArchived = !!acc.metadata.archived_at;
@@ -121,127 +93,141 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
   });
 
   return (
-    <div className="flex flex-col h-full bg-background relative">
-      <header className="flex items-center justify-between px-8 py-6 border-b border-border">
-        <h2 className="text-2xl font-bold text-text-main tracking-tight">{vaultName}</h2>
-        {activeView !== 'archived' && (
-          <button
-            onClick={() => setIsCreating(true)}
-            className="flex items-center px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors shadow-sm"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            New Item
-          </button>
-        )}
-      </header>
+    <div className="flex flex-row h-full w-full bg-background overflow-hidden">
+      {/* ============================================================== */}
+      {/* MIDDLE PANE: ITEM LIST (Fixed to w-64 / 256px)                 */}
+      {/* ============================================================== */}
+      <div className="w-64 flex flex-col h-full border-r border-border bg-background z-10 shrink-0 overflow-hidden">
+        <header className="flex items-center justify-between px-4 py-5 border-b border-border shrink-0">
+          <h2 className="text-lg font-bold text-text-main tracking-tight truncate pr-2">
+            {vaultName}
+          </h2>
+          {activeView !== 'archived' && (
+            <button
+              onClick={() => setIsCreating(true)}
+              className="flex items-center px-2 py-1.5 bg-primary text-white text-xs font-medium rounded-md hover:bg-primary-hover transition-colors shadow-sm shrink-0"
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              New
+            </button>
+          )}
+        </header>
 
-      <div className="px-8 py-4 border-b border-border bg-surface/30">
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-          <input
-            type="text"
-            placeholder="Search accounts, usernames, tags, or emails..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-md text-sm text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-          />
+        <div className="px-4 py-3 border-b border-border bg-surface/30 shrink-0">
+          <div className="relative w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 bg-surface border border-border rounded-md text-sm text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {error ? (
+            <div className="flex flex-col items-center justify-center h-48 text-text-muted">
+              <ShieldAlert className="w-8 h-8 text-danger mb-3" />
+              <p className="text-sm text-danger font-medium text-center">{error}</p>
+            </div>
+          ) : isLoading ? (
+            <div className="flex justify-center items-center h-48">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+            </div>
+          ) : filteredAccounts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-text-muted text-center px-2 border-2 border-dashed border-border rounded-xl mt-2">
+              {activeView === 'archived' ? (
+                <Archive className="w-6 h-6 mb-2 opacity-30" />
+              ) : activeView === 'favorites' ? (
+                <Star className="w-6 h-6 mb-2 opacity-30 text-warning" />
+              ) : (
+                <Key className="w-6 h-6 mb-2 opacity-30" />
+              )}
+              <p className="text-sm font-medium text-text-main mb-1">No items</p>
+            </div>
+          ) : (
+            <div className="flex flex-col space-y-1.5">
+              {filteredAccounts.map((account) => {
+                const isSelected = selectedAccount?.id === account.id;
+                return (
+                  <div
+                    key={account.id}
+                    onClick={() => setSelectedAccount(account)}
+                    className={`group relative p-2.5 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-primary/5 border-primary ring-1 ring-primary shadow-sm'
+                        : 'bg-surface border-border hover:border-primary/50'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2.5 overflow-hidden">
+                      <div
+                        className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-primary/10 text-primary' : 'bg-background border border-border text-text-muted group-hover:text-primary'}`}
+                      >
+                        <BrandIcon name={account.account_name} className="w-4 h-4" />
+                      </div>
+                      <div className="overflow-hidden">
+                        <h3
+                          className={`text-sm font-semibold truncate ${isSelected ? 'text-primary' : 'text-text-main'}`}
+                        >
+                          {account.account_name}
+                        </h3>
+                        <p className="text-xs text-text-muted truncate max-w-[120px]">
+                          {account.username || account.email || account.account_type}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center shrink-0 pl-1">
+                      {account.is_favorite && (
+                        <Star className="w-3.5 h-3.5 text-warning fill-warning opacity-80" />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-8">
-        {error ? (
-          <div className="flex flex-col items-center justify-center h-64 text-text-muted">
-            <ShieldAlert className="w-12 h-12 text-danger mb-4" />
-            <p className="text-danger font-medium">{error}</p>
-          </div>
-        ) : isLoading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </div>
-        ) : filteredAccounts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-text-muted border-2 border-dashed border-border rounded-xl">
-            {activeView === 'archived' ? (
-              <Archive className="w-12 h-12 mb-4 opacity-50" />
-            ) : activeView === 'favorites' ? (
-              <Star className="w-12 h-12 mb-4 opacity-50 text-warning" />
-            ) : (
-              <Key className="w-12 h-12 mb-4 opacity-50" />
-            )}
-            <p className="text-lg font-medium text-text-main mb-1">
-              {activeView === 'archived'
-                ? 'No archived items'
-                : activeView === 'favorites'
-                  ? 'No favorite items yet'
-                  : 'No items found'}
-            </p>
-            <p className="text-sm text-text-muted mb-4">
-              {searchQuery
-                ? 'Try adjusting your search terms.'
-                : activeView === 'archived'
-                  ? 'Items you archive will appear here safely out of the way.'
-                  : activeView === 'favorites'
-                    ? 'Click the star icon on any item to add it to your favorites.'
-                    : 'Get started by adding your first password.'}
-            </p>
-          </div>
+      {/* ============================================================== */}
+      {/* RIGHT PANE: ITEM DETAILS (Fills remaining space, min 320px)    */}
+      {/* ============================================================== */}
+      <div className="flex-1 flex flex-col h-full bg-surface min-w-[320px] relative shrink-0">
+        {selectedAccount ? (
+          <VaultItemDetail
+            account={selectedAccount}
+            onClose={() => setSelectedAccount(null)}
+            onDeleted={() => {
+              setSelectedAccount(null);
+              loadAccounts(false);
+            }}
+            onUpdated={() => {
+              // FIX: Removed the redundant invoke() here.
+              // loadAccounts(false) handles updating the selected item automatically now!
+              loadAccounts(false);
+            }}
+            onEditRequest={(acc) => {
+              setEditingAccount(acc);
+            }}
+          />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredAccounts.map((account) => (
-              <div
-                key={account.id}
-                onClick={() => setSelectedAccount(account)}
-                className="group relative p-4 bg-surface border border-border rounded-xl hover:border-primary/50 transition-colors cursor-pointer shadow-sm"
-              >
-                <div className="absolute top-2 right-2 flex items-center space-x-1">
-                  {activeView === 'archived' ? (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRestore(account);
-                      }}
-                      className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-background rounded-md transition-all text-text-muted hover:text-success"
-                      title="Restore"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setAccountToArchive(account);
-                      }}
-                      className="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-background rounded-md transition-all text-text-muted hover:text-warning"
-                      title="Archive"
-                    >
-                      <Archive className="w-4 h-4" />
-                    </button>
-                  )}
-                  {account.is_favorite && (
-                    <Star className="w-4 h-4 text-warning fill-warning opacity-80 m-1.5" />
-                  )}
-                </div>
-
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-background border border-border rounded-lg flex items-center justify-center text-text-muted group-hover:text-primary transition-colors overflow-hidden shrink-0">
-                      <BrandIcon name={account.account_name} className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-semibold text-text-main pr-16 truncate">
-                        {account.account_name}
-                      </h3>
-                      <p className="text-xs text-text-muted truncate max-w-[150px]">
-                        {account.username || account.email || account.account_type}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="flex-1 flex flex-col items-center justify-center h-full text-text-muted p-12 text-center">
+            <div className="w-16 h-16 bg-background border border-border rounded-full flex items-center justify-center mb-4">
+              <Fingerprint className="w-8 h-8 text-primary opacity-50" />
+            </div>
+            <h3 className="text-lg font-bold text-text-main mb-2">No Item Selected</h3>
+            <p className="text-sm text-text-muted max-w-sm leading-relaxed">
+              Select an item from the list to view its secure details, edit properties, or manage
+              its settings.
+            </p>
           </div>
         )}
       </div>
 
+      {/* Modals overlay the entire screen (z-[60] and above) */}
       <VaultItemForm
         isOpen={isCreating || !!editingAccount}
         initialData={editingAccount}
@@ -250,61 +236,8 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
           setIsCreating(false);
           setEditingAccount(null);
         }}
-        onSaved={loadAccounts}
+        onSaved={() => loadAccounts(false)} // Silent refresh after saving an edit/creation
       />
-
-      <VaultItemDetail
-        account={selectedAccount}
-        onClose={() => setSelectedAccount(null)}
-        onDeleted={() => {
-          setSelectedAccount(null);
-          loadAccounts();
-        }}
-        onUpdated={() => {
-          loadAccounts();
-          invoke<Account[]>('get_accounts').then((data) => {
-            const updated = data.find((a) => a.id === selectedAccount?.id);
-            if (updated) setSelectedAccount(updated);
-          });
-        }}
-        onEditRequest={(acc) => {
-          setSelectedAccount(null);
-          setEditingAccount(acc);
-        }}
-      />
-
-      {accountToArchive && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
-            onClick={() => setAccountToArchive(null)}
-          />
-          <div className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center mb-4 text-warning">
-              <AlertTriangle className="w-6 h-6 mr-3" />
-              <h3 className="text-lg font-semibold text-text-main">Archive Item?</h3>
-            </div>
-            <p className="text-sm text-text-muted mb-6 leading-relaxed">
-              Are you sure you want to archive <strong>{accountToArchive.account_name}</strong>? It
-              will be moved to the Archived folder and hidden from your main vaults.
-            </p>
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setAccountToArchive(null)}
-                className="px-4 py-2 text-sm font-medium text-text-main hover:bg-background rounded-md transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmArchive}
-                className="px-4 py-2 bg-warning text-white text-sm font-medium rounded-md hover:bg-warning/90 transition-colors shadow-sm"
-              >
-                Archive Item
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

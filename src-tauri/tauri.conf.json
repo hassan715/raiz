@@ -12,9 +12,13 @@
   "app": {
     "windows": [
       {
+        "fullscreen": false,
+        "height": 600,
+        "resizable": true,
         "title": "raiz",
         "width": 800,
-        "height": 600
+        "minWidth": 784,
+        "minHeight": 420
       }
     ],
     "security": {
