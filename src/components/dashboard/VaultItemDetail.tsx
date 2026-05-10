@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Clock,
   X,
+  AlertTriangle,
 } from 'lucide-react';
 import { Account, InnerVault } from '../../types';
 import BrandIcon from './BrandIcon';
@@ -54,6 +55,7 @@ export default function VaultItemDetail({
   const [showMetadata, setShowMetadata] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Safely extract primitive IDs to use as clean dependencies
@@ -77,6 +79,7 @@ export default function VaultItemDetail({
     setShowMetadata(false);
     setIsMenuOpen(false);
     setIsMoveModalOpen(false);
+    setIsDeleteModalOpen(false);
   }, [accountId]);
 
   // Safely fetch the vault name and available vaults list
@@ -132,7 +135,7 @@ export default function VaultItemDetail({
     }
   };
 
-  // --- Smart Archive/Restore Handler ---
+  // Archive/Restore Handler
   const handleArchiveToggle = async () => {
     if (isUpdating) return;
     setIsUpdating(true);
@@ -168,7 +171,7 @@ export default function VaultItemDetail({
 
       onUpdated(); // Trigger silent refresh of the dashboard list
       setIsMoveModalOpen(false);
-      onClose(); // Close details pane since the item moved out of current context
+      onClose();
     } catch (err) {
       console.error('Failed to securely move account to new vault:', err);
       alert('Failed to move item.');
@@ -194,20 +197,21 @@ export default function VaultItemDetail({
     }
   };
 
-  const handleDelete = async () => {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${account.account_name}? This cannot be undone.`
-    );
-    if (!confirmed) return;
+  // Execute Custom Delete Handler
+  const confirmAndDelete = async () => {
+    if (isDeleting) return;
     setIsDeleting(true);
     try {
-      await invoke('delete_account', { id: account.id });
-      onDeleted();
+      // Explicitly map the property name expected by the Rust signature
+      await invoke('delete_account', { accountId: account.id });
+
+      setIsDeleteModalOpen(false);
+      onDeleted(); // Trigger parent dashboard sync
+      onClose(); // Completely unmount the preview pane
     } catch (err) {
-      console.error('Failed to delete account:', err);
-      alert('Failed to delete account.');
-    } finally {
-      setIsDeleting(false);
+      console.error('Failed to securely delete account:', err);
+      alert('Failed to permanently delete item.');
+      setIsDeleting(false); // Only reset if it failed; if successful, component unmounts anyway
     }
   };
 
@@ -287,7 +291,6 @@ export default function VaultItemDetail({
                   {account.is_favorite ? 'Remove Favorite' : 'Add to Favorites'}
                 </button>
 
-                {/* UPDATED: Triggers the Move modal */}
                 <button
                   onClick={() => {
                     setIsMoveModalOpen(true);
@@ -322,10 +325,11 @@ export default function VaultItemDetail({
                   )}
                 </button>
 
+                {/* UPDATED: Triggers custom confirmation dialog instead of browser confirm */}
                 <button
                   onClick={() => {
+                    setIsDeleteModalOpen(true);
                     setIsMenuOpen(false);
-                    handleDelete();
                   }}
                   disabled={isDeleting}
                   className="w-full rounded-md flex items-center px-3 py-2 text-sm text-danger hover:bg-danger/10 transition-colors"
@@ -674,7 +678,7 @@ export default function VaultItemDetail({
                 )}
               </button>
 
-              {/* Dynamic Inner Vaults (FIX: Filtered out the default nil UUID to prevent duplication) */}
+              {/* Dynamic Inner Vaults */}
               {allVaults
                 .filter((vault) => vault.id !== '00000000-0000-0000-0000-000000000000')
                 .map((vault) => {
@@ -710,6 +714,46 @@ export default function VaultItemDetail({
                 className="px-4 py-2 text-sm font-medium text-text-main hover:bg-background rounded-md transition-colors"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* CUSTOM DELETE WARNING MODAL                                    */}
+      {/* ============================================================== */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsDeleteModalOpen(false)}
+          />
+          <div className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center mb-4 text-danger">
+              <AlertTriangle className="w-6 h-6 mr-3 shrink-0" />
+              <h3 className="text-lg font-bold">Delete Item?</h3>
+            </div>
+
+            <p className="text-sm text-text-main mb-6 leading-relaxed">
+              Are you sure you want to permanently delete <strong>{account.account_name}</strong>?
+              This action cannot be undone and credentials will be purged from disk immediately.
+            </p>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setIsDeleteModalOpen(false)}
+                disabled={isDeleting}
+                className="px-4 py-2 text-sm font-medium text-text-main hover:bg-background rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmAndDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-danger text-white text-sm font-bold rounded-md hover:bg-danger/90 disabled:opacity-50 transition-colors shadow-sm"
+              >
+                {isDeleting ? 'Deleting...' : 'Permanently Delete'}
               </button>
             </div>
           </div>
