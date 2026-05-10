@@ -99,7 +99,7 @@ export default function VaultItemDetail({
       }
     }
     fetchVaultData();
-  }, [targetVaultId]);
+  }, [targetVaultId, isMoveModalOpen]);
 
   if (!account) return null;
 
