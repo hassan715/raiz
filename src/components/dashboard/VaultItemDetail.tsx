@@ -155,18 +155,22 @@ export default function VaultItemDetail({
     }
   };
 
-  // --- NEW: Move Vault Handler ---
+  // Move Vault Handler (Backend Orchestrated)
   const handleMoveToVault = async (newVaultId: string) => {
     if (isUpdating || account.vault_id === newVaultId) return;
     setIsUpdating(true);
     try {
-      const updatedAccount = { ...account, vault_id: newVaultId };
-      await invoke('save_account', { account: updatedAccount });
-      onUpdated();
+      // Direct OS-level invocation. Only safe UUIDs cross the IPC boundary.
+      await invoke('move_account_to_vault', {
+        accountId: account.id,
+        newVaultId: newVaultId,
+      });
+
+      onUpdated(); // Trigger silent refresh of the dashboard list
       setIsMoveModalOpen(false);
-      onClose(); // Close details pane since the item moved out of the current folder context
+      onClose(); // Close details pane since the item moved out of current context
     } catch (err) {
-      console.error('Failed to move account to new vault', err);
+      console.error('Failed to securely move account to new vault:', err);
       alert('Failed to move item.');
     } finally {
       setIsUpdating(false);
