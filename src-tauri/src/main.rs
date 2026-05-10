@@ -390,6 +390,35 @@ fn update_profile_name(new_name: String, state: tauri::State<'_, AppState>) -> R
     }
 }
 
+/// Securely moves an existing account to a new inner vault boundary directly in memory.
+/// Prevents duplicating sensitive plaintext bytes in the JavaScript heap.
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn move_account_to_vault(
+    account_id: Uuid,
+    new_vault_id: Uuid,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut vault_guard = state.vault.lock().unwrap();
+    let dek_guard = state.dek.lock().unwrap();
+
+    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        // Find the account in memory and mutate its vault mapping in-place
+        if let Some(account) = vault.accounts.iter_mut().find(|a| a.id == account_id) {
+            // Wrapped new_vault_id in Some() to match Option<Uuid>
+            account.vault_id = Some(new_vault_id);
+
+            // Instantly commit the atomic memory update to disk
+            crate::storage::update_vault(vault, dek, &state.file_path)?;
+            Ok(())
+        } else {
+            Err("Account not found in active memory.".to_string())
+        }
+    } else {
+        Err("Vault is locked. Cannot move account.".to_string())
+    }
+}
+
 // --- MAIN THREAD ---
 #[cfg(not(tarpaulin_include))]
 fn main() {
@@ -424,7 +453,8 @@ fn main() {
             edit_inner_vault,
             delete_inner_vault,
             get_profile_name,
-            update_profile_name
+            update_profile_name,
+            move_account_to_vault
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
