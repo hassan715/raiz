@@ -20,6 +20,7 @@ import {
   Archive,
   RefreshCw,
   Clock,
+  X,
 } from 'lucide-react';
 import { Account, InnerVault } from '../../types';
 import BrandIcon from './BrandIcon';
@@ -43,12 +44,16 @@ export default function VaultItemDetail({
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [vaultName, setVaultName] = useState<string>('Personal');
 
-  // States: Scroll tracking & Menus
+  // Vault data states
+  const [vaultName, setVaultName] = useState<string>('Personal');
+  const [allVaults, setAllVaults] = useState<InnerVault[]>([]);
+
+  // States: Scroll tracking, Menus, Modals
   const [isScrolled, setIsScrolled] = useState(false);
   const [showMetadata, setShowMetadata] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Safely extract primitive IDs to use as clean dependencies
@@ -71,26 +76,29 @@ export default function VaultItemDetail({
     setShowPassword(false);
     setShowMetadata(false);
     setIsMenuOpen(false);
+    setIsMoveModalOpen(false);
   }, [accountId]);
 
-  // Safely fetch the vault name without triggering exhaustive-deps warnings
+  // Safely fetch the vault name and available vaults list
   useEffect(() => {
     if (!targetVaultId) return;
 
-    async function fetchVaultName() {
+    async function fetchVaultData() {
       try {
-        const vaults = await invoke<InnerVault[]>('get_vaults');
+        const fetchedVaults = await invoke<InnerVault[]>('get_vaults');
+        setAllVaults(fetchedVaults);
+
         if (targetVaultId !== '00000000-0000-0000-0000-000000000000') {
-          const v = vaults.find((v) => v.id === targetVaultId);
+          const v = fetchedVaults.find((v) => v.id === targetVaultId);
           if (v) setVaultName(v.name);
         } else {
           setVaultName('Personal');
         }
       } catch (e) {
-        console.error('Failed to load vault name', e);
+        console.error('Failed to load vault data', e);
       }
     }
-    fetchVaultName();
+    fetchVaultData();
   }, [targetVaultId]);
 
   if (!account) return null;
@@ -138,10 +146,28 @@ export default function VaultItemDetail({
         },
       };
       await invoke('save_account', { account: updatedAccount });
-      onUpdated(); // Refresh dashboard list
-      onClose(); // Close the details pane since it moved folders
+      onUpdated();
+      onClose();
     } catch (err) {
       console.error('Failed to toggle archive status', err);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // --- NEW: Move Vault Handler ---
+  const handleMoveToVault = async (newVaultId: string) => {
+    if (isUpdating || account.vault_id === newVaultId) return;
+    setIsUpdating(true);
+    try {
+      const updatedAccount = { ...account, vault_id: newVaultId };
+      await invoke('save_account', { account: updatedAccount });
+      onUpdated();
+      setIsMoveModalOpen(false);
+      onClose(); // Close details pane since the item moved out of the current folder context
+    } catch (err) {
+      console.error('Failed to move account to new vault', err);
+      alert('Failed to move item.');
     } finally {
       setIsUpdating(false);
     }
@@ -193,7 +219,6 @@ export default function VaultItemDetail({
     });
   };
 
-  // Scroll handler to trigger Navbar shadow
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     setIsScrolled(e.currentTarget.scrollTop > 10);
   };
@@ -258,9 +283,10 @@ export default function VaultItemDetail({
                   {account.is_favorite ? 'Remove Favorite' : 'Add to Favorites'}
                 </button>
 
+                {/* UPDATED: Triggers the Move modal */}
                 <button
                   onClick={() => {
-                    console.log('Move to be implemented');
+                    setIsMoveModalOpen(true);
                     setIsMenuOpen(false);
                   }}
                   className="w-full flex rounded-md items-center px-3 py-2 text-sm text-text-main hover:bg-text-main/10 transition-colors"
@@ -271,7 +297,6 @@ export default function VaultItemDetail({
 
                 <div className="h-px bg-border my-1.5 mx-2" />
 
-                {/* Dynamic Archive/Restore Button */}
                 <button
                   onClick={() => {
                     handleArchiveToggle();
@@ -533,9 +558,7 @@ export default function VaultItemDetail({
             </>
           )}
 
-          {/* ============================================================== */}
-          {/* DYNAMIC COLLAPSIBLE TIMELINE FOOTER                            */}
-          {/* ============================================================== */}
+          {/* COLLAPSIBLE TIMELINE FOOTER */}
           <div className="pt-6">
             <button
               onClick={() => setShowMetadata(!showMetadata)}
@@ -547,7 +570,6 @@ export default function VaultItemDetail({
                 <ChevronRight className="w-4 h-4 mr-2 opacity-70 shrink-0" />
               )}
 
-              {/* DYNAMIC TOGGLE TEXT */}
               {isArchived ? (
                 <span>Archived at: {formatDate(account.metadata.archived_at)}</span>
               ) : (
@@ -558,7 +580,6 @@ export default function VaultItemDetail({
             {showMetadata && (
               <div className="p-5 bg-background border border-border rounded-xl shadow-sm mt-3 animate-in fade-in slide-in-from-top-2 duration-200 mx-3">
                 <div className="relative pl-6 border-l-2 border-border/50 ml-2 space-y-6 py-1">
-                  {/* Created Node */}
                   <div className="relative">
                     <div className="absolute -left-[29px] top-0.5 w-2.5 h-2.5 bg-text-muted rounded-full ring-4 ring-background" />
                     <div className="flex flex-col">
@@ -571,7 +592,6 @@ export default function VaultItemDetail({
                     </div>
                   </div>
 
-                  {/* Updated Node */}
                   <div className="relative">
                     <div className="absolute -left-[29px] top-0.5 w-2.5 h-2.5 bg-primary rounded-full ring-4 ring-background" />
                     <div className="flex flex-col">
@@ -584,7 +604,6 @@ export default function VaultItemDetail({
                     </div>
                   </div>
 
-                  {/* CONDITIONAL NODE: Push 'Last Accessed' down here if the item is archived */}
                   {isArchived && (
                     <div className="relative animate-in fade-in duration-200">
                       <div className="absolute -left-[29px] top-0.5 w-2.5 h-2.5 bg-text-muted rounded-full ring-4 ring-background" />
@@ -604,6 +623,94 @@ export default function VaultItemDetail({
           </div>
         </div>
       </div>
+
+      {/* ============================================================== */}
+      {/* MOVE ITEM OVERLAY MODAL                                        */}
+      {/* ============================================================== */}
+      {isMoveModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsMoveModalOpen(false)}
+          />
+          <div className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-semibold text-text-main">Move Item</h3>
+              <button
+                onClick={() => setIsMoveModalOpen(false)}
+                className="p-1 text-text-muted hover:text-text-main rounded-md hover:bg-background transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-text-muted mb-4">
+              Select a destination vault for <strong>{account.account_name}</strong>:
+            </p>
+
+            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+              {/* Default Personal Vault Option */}
+              <button
+                onClick={() => handleMoveToVault('00000000-0000-0000-0000-000000000000')}
+                disabled={isUpdating || account.vault_id === '00000000-0000-0000-0000-000000000000'}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors border ${
+                  account.vault_id === '00000000-0000-0000-0000-000000000000'
+                    ? 'bg-primary/5 border-primary text-primary cursor-default'
+                    : 'bg-background border-border text-text-main hover:border-primary/50 hover:text-primary cursor-pointer'
+                }`}
+              >
+                <span className="flex items-center">
+                  <Folder className="w-4 h-4 mr-3 shrink-0" />
+                  Personal (Default)
+                </span>
+                {account.vault_id === '00000000-0000-0000-0000-000000000000' && (
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-primary/10 rounded">
+                    Current
+                  </span>
+                )}
+              </button>
+
+              {/* Dynamic Inner Vaults (FIX: Filtered out the default nil UUID to prevent duplication) */}
+              {allVaults
+                .filter((vault) => vault.id !== '00000000-0000-0000-0000-000000000000')
+                .map((vault) => {
+                  const isCurrent = account.vault_id === vault.id;
+                  return (
+                    <button
+                      key={vault.id}
+                      onClick={() => handleMoveToVault(vault.id)}
+                      disabled={isUpdating || isCurrent}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors border ${
+                        isCurrent
+                          ? 'bg-primary/5 border-primary text-primary cursor-default'
+                          : 'bg-background border-border text-text-main hover:border-primary/50 hover:text-primary cursor-pointer'
+                      }`}
+                    >
+                      <span className="flex items-center truncate pr-2">
+                        <Folder className="w-4 h-4 mr-3 shrink-0" />
+                        <span className="truncate">{vault.name}</span>
+                      </span>
+                      {isCurrent && (
+                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-primary/10 rounded shrink-0">
+                          Current
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+            </div>
+
+            <div className="mt-5 flex justify-end">
+              <button
+                onClick={() => setIsMoveModalOpen(false)}
+                className="px-4 py-2 text-sm font-medium text-text-main hover:bg-background rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
