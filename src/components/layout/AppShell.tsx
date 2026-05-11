@@ -3,9 +3,14 @@ import { invoke } from '@tauri-apps/api/core';
 import { Key, Settings, Folder, Plus, X, ChevronDown, LogOut, Archive, Star } from 'lucide-react';
 import { InnerVault, Account } from '../../types';
 import { useVault } from '../../context/VaultContext';
+import TitleBar from './TitleBar';
 
 interface AppShellProps {
-  children: React.ReactNode;
+  children: (props: {
+    searchQuery: string;
+    isCreatingTrigger: boolean;
+    resetCreatingTrigger: () => void;
+  }) => React.ReactNode;
   activeView: 'vaults' | 'settings' | 'archived' | 'favorites';
   setActiveView: (view: 'vaults' | 'settings' | 'archived' | 'favorites') => void;
   selectedVaultId: string | null;
@@ -22,6 +27,10 @@ export default function AppShell({
   const { lockVault } = useVault();
   const [vaults, setVaults] = useState<InnerVault[]>([]);
   const [profileName, setProfileName] = useState('My Vault');
+
+  // LIFTED APPLICATION STATES
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isCreatingTrigger, setIsCreatingTrigger] = useState(false);
 
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
@@ -54,7 +63,9 @@ export default function AppShell({
   useEffect(() => {
     fetchVaults();
     invoke<string>('get_profile_name').then(setProfileName).catch(console.error);
-  }, [activeView]);
+    // Clear dynamic queries when shifting target contexts
+    setSearchQuery('');
+  }, [activeView, selectedVaultId]);
 
   const fetchVaults = () => {
     invoke<InnerVault[]>('get_vaults').then(setVaults).catch(console.error);
@@ -73,7 +84,6 @@ export default function AppShell({
     return () => document.removeEventListener('mousedown', handleDocumentClick);
   }, []);
 
-  // Dispatches an event to nullify the open item details pane ---
   const clearSelection = () => {
     window.dispatchEvent(new Event('clear-selected-account'));
   };
@@ -178,7 +188,7 @@ export default function AppShell({
 
       if (selectedVaultId === vaultToDelete.id) {
         setSelectedVaultId(null);
-        clearSelection(); // Clear details pane if the open folder was deleted
+        clearSelection();
       }
 
       fetchVaults();
@@ -191,135 +201,154 @@ export default function AppShell({
     }
   };
 
+  const isArchiveView = activeView === 'archived';
+
   return (
-    <div className="flex h-screen w-full bg-background text-text-main overflow-hidden">
-      <aside className="w-52 bg-sidebar border-r border-border flex flex-col z-10 relative">
-        <div className="relative" ref={profileMenuRef}>
-          <button
-            onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-            className="w-full h-16 flex items-center justify-between px-4 border-b border-border hover:bg-surface transition-colors cursor-pointer"
-          >
-            <div className="flex items-center overflow-hidden">
-              <div className="w-8 h-8 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold mr-3 shrink-0">
-                {profileName.charAt(0).toUpperCase()}
-              </div>
-              <span className="text-sm font-semibold truncate tracking-wide text-text-main">
-                {profileName}
-              </span>
-            </div>
-            <ChevronDown
-              className={`w-4 h-4 text-text-muted transition-transform shrink-0 ml-2 ${isProfileMenuOpen ? 'rotate-180' : ''}`}
-            />
-          </button>
+    <div className="flex flex-col h-screen w-full bg-background text-text-main overflow-hidden">
+      {/* GLOBAL DRAG-HANDLE AND ACTIONS DECORATION */}
+      <TitleBar
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        onNewItemClick={() => setIsCreatingTrigger(true)}
+        disableActions={isArchiveView}
+      />
 
-          {isProfileMenuOpen && (
-            <div className="absolute top-14 left-2 right-2 bg-surface border border-border rounded-lg shadow-xl px-2 py-1.5 z-50 animate-in fade-in slide-in-from-top-2">
-              <button
-                onClick={() => {
-                  clearSelection();
-                  setActiveView('settings');
-                  setIsProfileMenuOpen(false);
-                }}
-                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main hover:bg-gray-200 transition-colors"
-              >
-                <Settings className="w-4 h-4 mr-3 text-text-muted " /> Settings
-              </button>
-              <div className="h-px bg-border my-1.5" />
-              <button
-                onClick={lockVault}
-                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main hover:bg-gray-200 transition-colors"
-              >
-                <LogOut className="w-4 h-4 mr-3 text-text-muted" /> Lock Raiz
-              </button>
-            </div>
-          )}
-        </div>
-
-        <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          <button
-            onClick={() => {
-              clearSelection();
-              setActiveView('vaults');
-              setSelectedVaultId(null);
-            }}
-            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-              activeView === 'vaults' && selectedVaultId === null
-                ? 'bg-primary-muted text-primary'
-                : 'text-text-muted hover:bg-surface hover:text-text-main'
-            }`}
-          >
-            <Key className="w-4 h-4 mr-3" /> All Vaults
-          </button>
-
-          <button
-            onClick={() => {
-              clearSelection();
-              setActiveView('favorites');
-              setSelectedVaultId(null);
-            }}
-            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-              activeView === 'favorites'
-                ? 'bg-primary-muted text-primary'
-                : 'text-text-muted hover:bg-surface hover:text-text-main'
-            }`}
-          >
-            <Star className="w-4 h-4 mr-3" /> Favorites
-          </button>
-
-          <div className="pt-4 pb-1 px-3 flex items-center justify-between">
-            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-              My Vaults
-            </p>
+      <div className="flex flex-1 w-full overflow-hidden relative">
+        <aside className="w-52 bg-sidebar border-r border-border flex flex-col z-10 relative shrink-0">
+          <div className="relative" ref={profileMenuRef}>
             <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="p-1 text-text-muted hover:text-primary hover:bg-surface rounded-md transition-colors"
-              title="Create New Vault"
+              onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+              className="w-full h-16 flex items-center justify-between px-4 border-b border-border hover:bg-surface transition-colors cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
+              <div className="flex items-center overflow-hidden">
+                <div className="w-8 h-8 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold mr-3 shrink-0">
+                  {profileName.charAt(0).toUpperCase()}
+                </div>
+                <span className="text-sm font-semibold truncate tracking-wide text-text-main">
+                  {profileName}
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-4 h-4 text-text-muted transition-transform shrink-0 ml-2 ${isProfileMenuOpen ? 'rotate-180' : ''}`}
+              />
             </button>
+
+            {isProfileMenuOpen && (
+              <div className="absolute top-14 left-2 right-2 bg-surface border border-border rounded-lg shadow-xl px-2 py-1.5 z-50 animate-in fade-in slide-in-from-top-2">
+                <button
+                  onClick={() => {
+                    clearSelection();
+                    setActiveView('settings');
+                    setIsProfileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main hover:bg-gray-200 transition-colors"
+                >
+                  <Settings className="w-4 h-4 mr-3 text-text-muted " /> Settings
+                </button>
+                <div className="h-px bg-border my-1.5" />
+                <button
+                  onClick={lockVault}
+                  className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main hover:bg-gray-200 transition-colors"
+                >
+                  <LogOut className="w-4 h-4 mr-3 text-text-muted" /> Lock Raiz
+                </button>
+              </div>
+            )}
           </div>
 
-          {vaults.map((vault) => (
+          <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
             <button
-              key={vault.id}
               onClick={() => {
                 clearSelection();
                 setActiveView('vaults');
-                setSelectedVaultId(vault.id);
+                setSelectedVaultId(null);
               }}
-              onContextMenu={(e) => handleContextMenu(e, vault)}
               className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                activeView === 'vaults' && selectedVaultId === vault.id
+                activeView === 'vaults' && selectedVaultId === null
                   ? 'bg-primary-muted text-primary'
                   : 'text-text-muted hover:bg-surface hover:text-text-main'
               }`}
             >
-              <Folder className="w-4 h-4 mr-3" /> {vault.name}
+              <Key className="w-4 h-4 mr-3" /> All Vaults
             </button>
-          ))}
-        </nav>
 
-        <div className="p-3 border-t border-border space-y-1">
-          <button
-            onClick={() => {
-              clearSelection();
-              setActiveView('archived');
-              setSelectedVaultId(null);
-            }}
-            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-              activeView === 'archived'
-                ? 'bg-primary-muted text-primary'
-                : 'text-text-muted hover:bg-surface hover:text-text-main'
-            }`}
-          >
-            <Archive className="w-4 h-4 mr-3" /> Archived
-          </button>
-        </div>
-      </aside>
+            <button
+              onClick={() => {
+                clearSelection();
+                setActiveView('favorites');
+                setSelectedVaultId(null);
+              }}
+              className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                activeView === 'favorites'
+                  ? 'bg-primary-muted text-primary'
+                  : 'text-text-muted hover:bg-surface hover:text-text-main'
+              }`}
+            >
+              <Star className="w-4 h-4 mr-3" /> Favorites
+            </button>
 
-      <main className="flex-1 flex flex-col relative overflow-y-auto">{children}</main>
+            <div className="pt-4 pb-1 px-3 flex items-center justify-between">
+              <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+                My Vaults
+              </p>
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="p-1 text-text-muted hover:text-primary hover:bg-surface rounded-md transition-colors"
+                title="Create New Vault"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
 
-      {/* --- CUSTOM RIGHT CLICK CONTEXT MENU --- */}
+            {vaults.map((vault) => (
+              <button
+                key={vault.id}
+                onClick={() => {
+                  clearSelection();
+                  setActiveView('vaults');
+                  setSelectedVaultId(vault.id);
+                }}
+                onContextMenu={(e) => handleContextMenu(e, vault)}
+                className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  activeView === 'vaults' && selectedVaultId === vault.id
+                    ? 'bg-primary-muted text-primary'
+                    : 'text-text-muted hover:bg-surface hover:text-text-main'
+                }`}
+              >
+                <Folder className="w-4 h-4 mr-3" /> {vault.name}
+              </button>
+            ))}
+          </nav>
+
+          <div className="p-3 border-t border-border space-y-1">
+            <button
+              onClick={() => {
+                clearSelection();
+                setActiveView('archived');
+                setSelectedVaultId(null);
+              }}
+              className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                activeView === 'archived'
+                  ? 'bg-primary-muted text-primary'
+                  : 'text-text-muted hover:bg-surface hover:text-text-main'
+              }`}
+            >
+              <Archive className="w-4 h-4 mr-3" /> Archived
+            </button>
+          </div>
+        </aside>
+
+        {/* --- INJECT SHARED SEARCH AND FORM LIFECYCLES INTO ACTIVE VIEW PANE --- */}
+        <main className="flex-1 flex flex-col relative overflow-hidden">
+          {children({
+            searchQuery,
+            isCreatingTrigger: isCreatingTrigger,
+            resetCreatingTrigger: () => setIsCreatingTrigger(false),
+          })}
+        </main>
+      </div>
+
+      {/* --- RIGHT CLICK MODALS RETAIN EXISTING BEHAVIOR --- */}
       {contextMenu && (
         <div
           ref={contextMenuRef}
@@ -347,7 +376,6 @@ export default function AppShell({
         </div>
       )}
 
-      {/* --- EDIT VAULT MODAL --- */}
       {isEditModalOpen && vaultToEdit && (
         <div className="fixed inset-0 z-70 flex items-center justify-center">
           <div
@@ -417,7 +445,6 @@ export default function AppShell({
         </div>
       )}
 
-      {/* --- DELETE VAULT WARNING MODAL --- */}
       {isDeleteModalOpen && vaultToDelete && (
         <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
           <div
@@ -429,7 +456,6 @@ export default function AppShell({
             <p className="text-sm text-text-main mb-6 leading-relaxed">
               This vault and its {vaultToDeleteItemCount} items will be permanently deleted.
             </p>
-
             <div className="mb-6">
               <label className="block text-sm font-medium text-text-muted mb-2">
                 Please type <strong>{vaultToDelete.name}</strong> to confirm.
@@ -443,7 +469,6 @@ export default function AppShell({
                 autoFocus
               />
             </div>
-
             {deleteError && <p className="text-sm text-danger mb-4 text-center">{deleteError}</p>}
             <div className="flex justify-end space-x-3">
               <button
@@ -464,7 +489,6 @@ export default function AppShell({
         </div>
       )}
 
-      {/* --- CREATE VAULT MODAL --- */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
