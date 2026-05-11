@@ -18,7 +18,8 @@
         "title": "raiz",
         "width": 800,
         "minWidth": 784,
-        "minHeight": 420
+        "minHeight": 420,
+        "decorations": false
       }
     ],
     "security": {

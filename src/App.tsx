@@ -10,7 +10,6 @@ import { ThemeProvider } from './context/ThemeContext';
 function App() {
   const { lockVault } = useVault();
 
-  // NEW: Added 'favorites' to the allowed views
   const [activeView, setActiveView] = useState<'vaults' | 'settings' | 'archived' | 'favorites'>(
     'vaults'
   );
@@ -37,12 +36,20 @@ function App() {
           selectedVaultId={selectedVaultId}
           setSelectedVaultId={setSelectedVaultId}
         >
-          {/* Render the Dashboard for vaults, archived, AND favorites views */}
-          {activeView === 'vaults' || activeView === 'archived' || activeView === 'favorites' ? (
-            <VaultDashboard selectedVaultId={selectedVaultId} activeView={activeView} />
-          ) : (
-            <SettingsView lockTimeout={lockTimeout} setLockTimeout={setLockTimeout} />
-          )}
+          {/* FIX: Wrapped children in a Render Prop function to receive lifted TitleBar states */}
+          {({ searchQuery, isCreatingTrigger, resetCreatingTrigger }) =>
+            activeView === 'vaults' || activeView === 'archived' || activeView === 'favorites' ? (
+              <VaultDashboard
+                selectedVaultId={selectedVaultId}
+                activeView={activeView}
+                searchQuery={searchQuery}
+                isCreatingTrigger={isCreatingTrigger}
+                resetCreatingTrigger={resetCreatingTrigger}
+              />
+            ) : (
+              <SettingsView lockTimeout={lockTimeout} setLockTimeout={setLockTimeout} />
+            )
+          }
         </AppShell>
       </Gateway>
     </ThemeProvider>

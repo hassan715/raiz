@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Search, Plus, Key, ShieldAlert, Star, Archive, Fingerprint } from 'lucide-react';
+import { Key, ShieldAlert, Star, Archive, Fingerprint } from 'lucide-react';
 import { Account, InnerVault } from '../../types';
 import VaultItemForm from './VaultItemForm';
 import BrandIcon from './BrandIcon';
@@ -9,14 +9,22 @@ import VaultItemDetail from './VaultItemDetail';
 interface VaultDashboardProps {
   selectedVaultId: string | null;
   activeView: 'vaults' | 'settings' | 'archived' | 'favorites';
+  searchQuery: string;
+  isCreatingTrigger: boolean;
+  resetCreatingTrigger: () => void;
 }
 
-export default function VaultDashboard({ selectedVaultId, activeView }: VaultDashboardProps) {
+export default function VaultDashboard({
+  selectedVaultId,
+  activeView,
+  searchQuery,
+  isCreatingTrigger,
+  resetCreatingTrigger,
+}: VaultDashboardProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,9 +37,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
         const data = await invoke<Account[]>('get_accounts');
         setAccounts(data);
 
-        // FIX: Safely auto-sync the selected item with the fresh data from the backend.
-        // Because we use the `(current) =>` callback, this prevents the race condition
-        // where closing a pane and refreshing data happen at the exact same time.
         setSelectedAccount((current) => {
           if (!current) return null;
           return data.find((a) => a.id === current.id) || null;
@@ -59,14 +64,11 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
   );
 
   useEffect(() => {
-    // Show spinner on initial load or view change
     loadAccounts(true);
 
-    // Silently refresh when a vault is deleted from the sidebar
     const handleVaultDeleted = () => loadAccounts(false);
     window.addEventListener('vault-deleted', handleVaultDeleted);
 
-    // Clear the selected account pane when clicking sidebar folders
     const handleClearSelection = () => setSelectedAccount(null);
     window.addEventListener('clear-selected-account', handleClearSelection);
 
@@ -75,6 +77,14 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
       window.removeEventListener('clear-selected-account', handleClearSelection);
     };
   }, [loadAccounts]);
+
+  // Trap external creation triggers passed from TitleBar
+  useEffect(() => {
+    if (isCreatingTrigger) {
+      setIsCreating(true);
+      resetCreatingTrigger();
+    }
+  }, [isCreatingTrigger, resetCreatingTrigger]);
 
   const filteredAccounts = accounts.filter((acc) => {
     const isArchived = !!acc.metadata.archived_at;
@@ -100,36 +110,15 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
   return (
     <div className="flex flex-row h-full w-full bg-background overflow-hidden">
       {/* ============================================================== */}
-      {/* MIDDLE PANE: ITEM LIST (Fixed to w-64 / 256px)                 */}
+      {/* MIDDLE PANE: CATEGORY ITEM LIST                                */}
       {/* ============================================================== */}
       <div className="w-64 flex flex-col h-full border-r border-border bg-background z-10 shrink-0 overflow-hidden">
-        <header className="flex items-center justify-between px-4 py-5 border-b border-border shrink-0">
-          <h2 className="text-lg font-bold text-text-main tracking-tight truncate pr-2">
+        {/* Simple inner panel context tag */}
+        <header className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 bg-surface/30">
+          <h2 className="text-xs font-bold text-text-muted tracking-wide uppercase truncate">
             {vaultName}
           </h2>
-          {activeView !== 'archived' && (
-            <button
-              onClick={() => setIsCreating(true)}
-              className="flex items-center px-2 py-1.5 bg-primary text-white text-xs font-medium rounded-md hover:bg-primary-hover transition-colors shadow-sm shrink-0"
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              New
-            </button>
-          )}
         </header>
-
-        <div className="px-4 py-3 border-b border-border bg-surface/30 shrink-0">
-          <div className="relative w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-            <input
-              type="text"
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-surface border border-border rounded-md text-sm text-text-main focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
-            />
-          </div>
-        </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {error ? (
@@ -198,7 +187,7 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
       </div>
 
       {/* ============================================================== */}
-      {/* RIGHT PANE: ITEM DETAILS (Fills remaining space, min 320px)    */}
+      {/* RIGHT PANE: ITEM DETAILS PREVIEW                               */}
       {/* ============================================================== */}
       <div className="flex-1 flex flex-col h-full bg-surface min-w-[320px] relative shrink-0">
         {selectedAccount ? (
@@ -210,8 +199,6 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
               loadAccounts(false);
             }}
             onUpdated={() => {
-              // FIX: Removed the redundant invoke() here.
-              // loadAccounts(false) handles updating the selected item automatically now!
               loadAccounts(false);
             }}
             onEditRequest={(acc) => {
@@ -232,7 +219,7 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
         )}
       </div>
 
-      {/* Modals overlay the entire screen (z-[60] and above) */}
+      {/* SECURE OVERLAYS */}
       <VaultItemForm
         isOpen={isCreating || !!editingAccount}
         initialData={editingAccount}
@@ -241,7 +228,7 @@ export default function VaultDashboard({ selectedVaultId, activeView }: VaultDas
           setIsCreating(false);
           setEditingAccount(null);
         }}
-        onSaved={() => loadAccounts(false)} // Silent refresh after saving an edit/creation
+        onSaved={() => loadAccounts(false)}
       />
     </div>
   );
