@@ -63,7 +63,7 @@ fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<Str
             *state.dek.lock().unwrap() = Some(decrypted_dek);
             Ok("Vault unlocked".to_string())
         }
-        Err(_) => Err("Invalid Master Password or corrupted file.".to_string()),
+        Err(_) => Err("Invalid Password. Please try again.".to_string()),
     }
 }
 
