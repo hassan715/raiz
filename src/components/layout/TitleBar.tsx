@@ -7,6 +7,8 @@ interface TitleBarProps {
   setSearchQuery: (query: string) => void;
   onNewItemClick: () => void;
   disableActions?: boolean;
+  isSidebarVisible?: boolean;
+  hasBottomBorder?: boolean;
 }
 
 export default function TitleBar({
@@ -14,13 +16,12 @@ export default function TitleBar({
   setSearchQuery,
   onNewItemClick,
   disableActions = false,
+  isSidebarVisible = true,
+  hasBottomBorder = true,
 }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
-
-  // Stable window reference derived strictly once
   const appWindow = useMemo(() => getCurrentWindow(), []);
 
-  // Absolute truth pattern: execute OS instruction first, then verify true system outcome
   const handleToggleMaximize = async () => {
     await appWindow.toggleMaximize();
     setIsMaximized(await appWindow.isMaximized());
@@ -53,13 +54,19 @@ export default function TitleBar({
   }, [appWindow]);
 
   return (
-    /* ROOT WRAPPER: Flat flexbox layout */
-    <div className="h-12 w-full select-none z-50 shrink-0 bg-background flex items-center overflow-hidden">
-      {/* BRAND ANCHOR (Merged with Sidebar) */}
+    /* ROOT WRAPPER: Flat flexbox layout completely stripped of global bottom borders
+       to allow the Brand anchor to descend uninterrupted into the sidebar.
+    */
+    <div className="h-12 w-full select-none z-50 shrink-0 bg-background flex items-center overflow-hidden transition-colors">
+      {/* BRAND ANCHOR */}
       <div
         data-tauri-drag-region
         onDoubleClick={handleToggleMaximize}
-        className="w-52 h-full bg-sidebar flex items-center space-x-2 pl-4 text-md font-bold tracking-wider text-text-muted shrink-0 border-r border-border"
+        className={`h-full flex items-center space-x-2 pl-4 text-md font-bold tracking-wider text-text-muted shrink-0 transition-all ${
+          isSidebarVisible
+            ? 'w-52 bg-sidebar border-r border-border'
+            : 'bg-transparent border-transparent'
+        }`}
       >
         <span className="w-2.5 h-2.5 rounded-full bg-primary inline-block pointer-events-none" />
         <span className="pointer-events-none">Raiz</span>
@@ -69,13 +76,14 @@ export default function TitleBar({
       <div
         data-tauri-drag-region
         onDoubleClick={handleToggleMaximize}
-        className="flex-1 h-full flex items-center justify-between border-b border-border bg-background pl-6"
+        className={`flex-1 h-full flex items-center justify-between bg-background pl-6 gap-3 transition-colors ${
+          hasBottomBorder ? 'border-b border-border' : ''
+        }`}
       >
-        {/* Primary Interactive Inputs Container (Search & Instantiation) */}
-        <div className="flex items-center space-x-3 w-full sm:w-sm lg:w-lg">
-          {/* Universal Search Input Wrapper */}
+        {/* Universal Search Input Wrapper */}
+        {!disableActions && (
           <div
-            className="relative w-full"
+            className="relative w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
@@ -86,25 +94,25 @@ export default function TitleBar({
               placeholder="Search credentials, notes, tags..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              disabled={disableActions}
-              className="w-full pl-9 pr-3 py-1.5 bg-surface border border-border rounded-md text-sm text-text-main focus:outline-none focus:border-primary transition-all disabled:opacity-50"
+              className="w-full pl-9 pr-3 py-1.5 bg-surface border border-border rounded-md text-sm text-text-main focus:outline-none focus:border-primary transition-all"
             />
           </div>
+        )}
 
-          {/* Instantiation Trigger Button */}
+        {/* Instantiation Trigger Button */}
+        {!disableActions && (
           <button
             onClick={onNewItemClick}
             onDoubleClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
-            disabled={disableActions}
-            className="flex items-center px-3 py-1.5 bg-primary text-white text-xs font-medium rounded-md hover:bg-primary-hover transition-colors shadow-sm shrink-0 disabled:opacity-50 cursor-pointer"
+            className="flex items-center px-3 py-1.5 bg-primary text-white text-xs font-medium rounded-md hover:bg-primary-hover transition-colors shadow-sm shrink-0 cursor-pointer"
           >
             <Plus className="w-4 h-4 mr-1.5 shrink-0 pointer-events-none" />
             New Item
           </button>
-        </div>
+        )}
 
-        {/* Flexible structural filler to absorb dead space and push window controls to the edge */}
+        {/* Flexible structural filler */}
         <div
           data-tauri-drag-region
           onDoubleClick={handleToggleMaximize}
@@ -119,7 +127,7 @@ export default function TitleBar({
           <button
             onClick={() => appWindow.minimize()}
             onDoubleClick={(e) => e.stopPropagation()}
-            className="p-2 hover:bg-surface rounded text-text-muted hover:text-text-main transition-colors"
+            className="p-2 hover:bg-surface rounded text-text-muted hover:text-text-main transition-colors cursor-pointer"
             title="Minimize"
           >
             <Minus className="w-4 h-4 pointer-events-none" />
@@ -128,7 +136,7 @@ export default function TitleBar({
           <button
             onClick={handleToggleMaximize}
             onDoubleClick={(e) => e.stopPropagation()}
-            className="p-2 hover:bg-surface rounded text-text-muted hover:text-text-main transition-colors"
+            className="p-2 hover:bg-surface rounded text-text-muted hover:text-text-main transition-colors cursor-pointer"
             title={isMaximized ? 'Restore' : 'Maximize'}
           >
             {isMaximized ? (
@@ -141,7 +149,7 @@ export default function TitleBar({
           <button
             onClick={() => appWindow.close()}
             onDoubleClick={(e) => e.stopPropagation()}
-            className="p-2 hover:bg-danger/10 rounded text-text-muted hover:text-danger transition-colors"
+            className="p-2 hover:bg-danger/10 rounded text-text-muted hover:text-danger transition-colors cursor-pointer"
             title="Close"
           >
             <X className="w-4 h-4 pointer-events-none" />
