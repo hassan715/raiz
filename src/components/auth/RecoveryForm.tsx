@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import React, { useState, useId } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useVault } from '../../context/VaultContext';
-import { ShieldAlert, ArrowRight, Loader2, Copy, Check } from 'lucide-react';
+import { ArrowRight, Loader2, Eye, EyeOff, Copy, Check } from 'lucide-react';
 
 interface RecoveryFormProps {
   onBack: () => void;
@@ -11,17 +11,44 @@ export default function RecoveryForm({ onBack }: RecoveryFormProps) {
   const { setStatus } = useVault();
   const [step, setStep] = useState<'PHRASE' | 'NEW_PASSWORD' | 'NEW_PHRASE'>('PHRASE');
 
-  // Step 1: Phrase
+  // Step 1: Phrase State
   const [phrase, setPhrase] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Step 2: New Password
+  // Step 2: New Password & Dedicated Visibility States
   const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [newPhrase, setNewPhrase] = useState('');
 
   // Step 3: Copy State
   const [copied, setCopied] = useState(false);
+
+  // Stable IDs for label↔input association and aria-describedby
+  const phraseId = useId();
+  const newPasswordId = useId();
+  const confirmPassId = useId();
+  const errorId = useId();
+  const newPhraseId = useId();
+
+  const STEP_LABELS: Record<typeof step, string> = {
+    PHRASE: 'Step 1 of 3: Verify recovery phrase',
+    NEW_PASSWORD: 'Step 2 of 3: Create new password',
+    NEW_PHRASE: 'Step 3 of 3: Back up new recovery phrase',
+  };
+
+  const getStepDescription = () => {
+    switch (step) {
+      case 'PHRASE':
+        return 'Restore access to your local database using your secure 24-word backup.';
+      case 'NEW_PASSWORD':
+        return 'Phrase verified. Create a strong, new password to re-encrypt your vault.';
+      case 'NEW_PHRASE':
+        return 'Please back up your newly generated recovery phrase below.';
+    }
+  };
 
   const handleVerifyPhrase = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +58,7 @@ export default function RecoveryForm({ onBack }: RecoveryFormProps) {
       await invoke('unlock_with_recovery', { phrase: phrase.trim() });
       setStep('NEW_PASSWORD');
     } catch {
-      setError('Invalid recovery phrase. Please check your spelling and spacing.');
+      setError('Invalid recovery phrase. Check spelling and spacing.');
     } finally {
       setIsLoading(false);
     }
@@ -43,7 +70,10 @@ export default function RecoveryForm({ onBack }: RecoveryFormProps) {
       setError('Password must be at least 12 characters.');
       return;
     }
-
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
     setIsLoading(true);
     setError('');
     try {
@@ -64,131 +94,285 @@ export default function RecoveryForm({ onBack }: RecoveryFormProps) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background text-text-main p-4 animate-in fade-in">
-      <div className="w-full max-w-md p-8 bg-surface border border-border rounded-xl shadow-sm">
-        <div className="flex justify-center mb-6">
-          <div className="p-3 bg-danger/10 text-danger rounded-full">
-            <ShieldAlert className="w-8 h-8" />
-          </div>
-        </div>
+    <div className="w-full max-w-sm mx-auto animate-in fade-in duration-300">
+      {/* Header — step context announced as a heading */}
+      <div className="flex flex-col items-start mb-5">
+        <h2 className="text-xl font-bold text-text-main tracking-tight mb-1 text-left">
+          Account Recovery
+        </h2>
+        <p
+          className="text-sm text-text-muted text-left max-w-xs leading-relaxed"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {getStepDescription()}
+        </p>
+      </div>
 
-        <h2 className="text-2xl font-semibold text-center tracking-tight mb-2">Vault Recovery</h2>
-
-        {step === 'PHRASE' && (
-          <form
-            onSubmit={handleVerifyPhrase}
-            className="space-y-6 animate-in slide-in-from-right-2"
-          >
-            <p className="text-sm text-center text-text-muted">
-              Enter your 24-word recovery phrase separated by spaces.
+      {/* STEP 1: VERIFY RECOVERY PHRASE */}
+      {step === 'PHRASE' && (
+        <form
+          onSubmit={handleVerifyPhrase}
+          aria-label={STEP_LABELS.PHRASE}
+          className="space-y-3 animate-in slide-in-from-right-2"
+          noValidate
+        >
+          {error && (
+            <p
+              id={errorId}
+              role="alert"
+              className="text-xs text-danger font-semibold tracking-wide animate-in fade-in duration-200 text-left mb-1.5"
+            >
+              {error}
             </p>
+          )}
 
-            <div>
-              <textarea
-                value={phrase}
-                onChange={(e) => setPhrase(e.target.value)}
-                placeholder="word1 word2 word3..."
-                className="w-full px-4 py-3 bg-background border border-border rounded-lg text-text-main focus:outline-none focus:border-primary text-sm min-h-[120px] resize-none"
-                required
-              />
-            </div>
+          <div>
+            <label htmlFor={phraseId} className="sr-only">
+              Recovery phrase
+            </label>
+            <textarea
+              id={phraseId}
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+              placeholder="Enter your 24-word recovery phrase separated by spaces…"
+              aria-describedby={error ? errorId : undefined}
+              aria-invalid={!!error}
+              aria-required="true"
+              className="w-full px-4 py-3 bg-surface border border-border rounded-lg text-text-main focus:outline-none focus:border-primary text-sm min-h-[120px] resize-none disabled:opacity-50 transition-colors text-left"
+              disabled={isLoading}
+              required
+              autoFocus
+            />
+          </div>
 
-            {error && (
-              <p className="text-sm text-danger text-center bg-danger/10 p-2 rounded-md">{error}</p>
-            )}
+          <div className="space-y-2 pt-1">
+            <button
+              type="submit"
+              disabled={isLoading || !phrase.trim()}
+              aria-disabled={isLoading || !phrase.trim()}
+              aria-busy={isLoading}
+              className="w-full flex justify-center items-center px-4 py-2.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  <span className="sr-only">Verifying phrase…</span>
+                </>
+              ) : (
+                'Verify Phrase'
+              )}
+            </button>
 
-            <div className="space-y-3">
-              <button
-                type="submit"
-                disabled={isLoading || !phrase.trim()}
-                className="w-full flex justify-center items-center px-4 py-2.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover disabled:opacity-50 transition-colors"
-              >
-                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Verify Phrase'}
-              </button>
+            <div className="flex justify-start mt-4">
               <button
                 type="button"
                 onClick={onBack}
                 disabled={isLoading}
-                className="w-full px-4 py-2 text-sm text-text-muted hover:text-text-main transition-colors"
+                aria-disabled={isLoading}
+                className="text-xs text-text-muted hover:text-text-main underline transition-colors font-medium cursor-pointer text-left"
               >
-                Cancel and return to Login
+                Return to login
               </button>
             </div>
-          </form>
-        )}
+          </div>
+        </form>
+      )}
 
-        {step === 'NEW_PASSWORD' && (
-          <form
-            onSubmit={handleResetPassword}
-            className="space-y-6 animate-in slide-in-from-right-2"
-          >
-            <p className="text-sm text-center text-text-muted">
-              Phrase verified. Please create a new Master Password to secure your vault.
+      {/* STEP 2: CREATE & CONFIRM NEW PASSWORD */}
+      {step === 'NEW_PASSWORD' && (
+        <form
+          onSubmit={handleResetPassword}
+          aria-label={STEP_LABELS.NEW_PASSWORD}
+          className="space-y-3 animate-in slide-in-from-right-2"
+          noValidate
+        >
+          {error && (
+            <p
+              id={errorId}
+              role="alert"
+              className="text-xs text-danger font-semibold tracking-wide animate-in fade-in duration-200 text-left mb-1.5"
+            >
+              {error}
             </p>
+          )}
 
+          <div className="space-y-2.5">
+            {/* New password */}
             <div>
-              <label className="block text-sm font-medium text-text-muted mb-1.5">
-                New Master Password
+              <label htmlFor={newPasswordId} className="sr-only">
+                New password (at least 12 characters)
               </label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full px-4 py-2.5 bg-background border border-border rounded-lg text-text-main focus:outline-none focus:border-primary"
-                placeholder="At least 12 characters"
-                required
-              />
+              <div className="relative">
+                <input
+                  id={newPasswordId}
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    if (!e.target.value) setShowNewPassword(false);
+                  }}
+                  disabled={isLoading}
+                  autoComplete="new-password"
+                  aria-describedby={error ? errorId : undefined}
+                  aria-invalid={
+                    !!error && (newPassword.length < 12 || newPassword !== confirmPassword)
+                  }
+                  aria-required="true"
+                  className="w-full pl-4 pr-12 py-3 bg-surface border border-border rounded-lg text-sm text-text-main focus:outline-none focus:border-primary transition-colors disabled:opacity-50 text-left"
+                  placeholder="New password (at least 12 characters)"
+                  required
+                  autoFocus
+                />
+                {newPassword && (
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    disabled={isLoading}
+                    tabIndex={-1}
+                    aria-pressed={showNewPassword}
+                    aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text-main transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {showNewPassword ? (
+                      <EyeOff className="w-4 h-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="w-4 h-4" aria-hidden="true" />
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
 
-            {error && (
-              <p className="text-sm text-danger text-center bg-danger/10 p-2 rounded-md">{error}</p>
-            )}
+            {/* Confirm password */}
+            <div>
+              <label htmlFor={confirmPassId} className="sr-only">
+                Confirm new password
+              </label>
+              <div className="relative">
+                <input
+                  id={confirmPassId}
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    if (!e.target.value) setShowConfirmPassword(false);
+                  }}
+                  disabled={isLoading}
+                  autoComplete="new-password"
+                  aria-describedby={error ? errorId : undefined}
+                  aria-invalid={!!error && newPassword !== confirmPassword}
+                  aria-required="true"
+                  className="w-full pl-4 pr-12 py-3 bg-surface border border-border rounded-lg text-sm text-text-main focus:outline-none focus:border-primary transition-colors disabled:opacity-50 text-left"
+                  placeholder="Confirm new password"
+                  required
+                />
+                {confirmPassword && (
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((v) => !v)}
+                    disabled={isLoading}
+                    tabIndex={-1}
+                    aria-pressed={showConfirmPassword}
+                    aria-label={
+                      showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'
+                    }
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text-main transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="w-4 h-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="w-4 h-4" aria-hidden="true" />
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
 
+          <div className="space-y-2 pt-1">
             <button
               type="submit"
-              disabled={isLoading || newPassword.length < 12}
-              className="w-full flex justify-center items-center px-4 py-2.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover disabled:opacity-50 transition-colors"
+              disabled={isLoading || newPassword.length < 12 || !confirmPassword}
+              aria-disabled={isLoading || newPassword.length < 12 || !confirmPassword}
+              aria-busy={isLoading}
+              className="w-full flex justify-center items-center px-4 py-2.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover disabled:opacity-50 transition-colors cursor-pointer"
             >
-              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Reset Password'}
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  <span className="sr-only">Resetting password…</span>
+                </>
+              ) : (
+                'Reset Password'
+              )}
             </button>
-          </form>
-        )}
 
-        {step === 'NEW_PHRASE' && (
-          <div className="space-y-6 animate-in slide-in-from-right-2">
-            <div className="bg-danger/10 border border-danger/20 p-4 rounded-lg">
-              <p className="text-sm text-danger font-medium text-center">
-                Your old recovery phrase is now invalid.
-              </p>
-              <p className="text-xs text-danger/80 text-center mt-1">
-                Write down this NEW 24-word phrase. It is the only way to recover your vault if you
-                forget your new password.
-              </p>
-            </div>
-
-            <div className="p-4 bg-background border border-border rounded-lg relative group">
-              <p className="font-mono text-sm leading-relaxed text-text-main break-words">
-                {newPhrase}
-              </p>
+            <div className="flex justify-start mt-4">
               <button
-                onClick={copyToClipboard}
-                className="absolute top-2 right-2 p-2 bg-surface border border-border rounded-md text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                title="Copy to clipboard"
+                type="button"
+                onClick={onBack}
+                disabled={isLoading}
+                aria-disabled={isLoading}
+                className="text-xs text-text-muted hover:text-text-main underline transition-colors font-medium cursor-pointer text-left"
               >
-                {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
+                Cancel recovery
               </button>
             </div>
+          </div>
+        </form>
+      )}
+
+      {/* STEP 3: BACKUP NEW PHRASE */}
+      {step === 'NEW_PHRASE' && (
+        <div
+          role="region"
+          aria-label={STEP_LABELS.NEW_PHRASE}
+          className="space-y-4 animate-in slide-in-from-right-2"
+        >
+          <p role="alert" className="text-xs text-danger font-semibold text-left tracking-wide">
+            Warning: Your old phrase is invalid. Save this new backup immediately.
+          </p>
+
+          <div className="p-4 bg-surface border border-border rounded-lg relative group">
+            <p
+              id={newPhraseId}
+              className="font-mono text-xs leading-relaxed text-text-main wrap-break-word select-all text-left pr-8"
+            >
+              {newPhrase}
+            </p>
+
+            {/* Visually hidden live region announces copy state to screen readers.
+                aria-live must not sit on the button itself — it needs its own node. */}
+            <span role="status" aria-live="polite" className="sr-only">
+              {copied ? 'Copied to clipboard' : ''}
+            </span>
 
             <button
-              onClick={() => setStatus('UNLOCKED')}
-              className="w-full flex justify-center items-center px-4 py-2.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors"
+              type="button"
+              onClick={copyToClipboard}
+              aria-describedby={newPhraseId}
+              aria-label={copied ? 'Copied to clipboard' : 'Copy recovery phrase to clipboard'}
+              className="absolute top-3 right-3 p-1.5 bg-background border border-border rounded-md text-text-muted hover:text-text-main transition-colors cursor-pointer"
             >
-              I have saved my new phrase
-              <ArrowRight className="w-4 h-4 ml-2" />
+              {copied ? (
+                <Check className="w-3.5 h-3.5 text-success stroke-[3]" aria-hidden="true" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" aria-hidden="true" />
+              )}
             </button>
           </div>
-        )}
-      </div>
+
+          <button
+            type="button"
+            onClick={() => setStatus('UNLOCKED')}
+            className="w-full flex justify-center items-center px-4 py-2.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors cursor-pointer"
+          >
+            I have saved my new phrase
+            <ArrowRight className="w-4 h-4 ml-2" aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

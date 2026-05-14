@@ -86,4 +86,10 @@
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
   }
+
+  /* Hide native browser password reveal button */
+  input[type='password']::-ms-reveal,
+  input[type='password']::-ms-clear {
+    display: none;
+  }
 }
