@@ -22,20 +22,20 @@ export default function Gateway({ children }: GatewayProps) {
 
   if (status === 'SETUP') {
     return (
-      <div className="flex-1 w-full bg-background flex items-center justify-center p-4">
-        <SetupForm />
+      <div className="flex-1 w-full bg-background overflow-y-auto">
+        <div className="w-full min-h-full flex justify-center pt-[15vh] pb-12 px-4">
+          <SetupForm />
+        </div>
       </div>
     );
   }
 
   if (status === 'LOCKED') {
     return (
-      /* GATEWAY ALIGNMENT:
-         Shifts content toward the upper vertical region using a custom top margin mapping
-         paired with horizontal centering to adhere to optimal view framing.
-      */
-      <div className="flex-1 w-full bg-background flex justify-center pt-[15vh] px-4 overflow-y-auto">
-        <LoginForm />
+      <div className="flex-1 w-full bg-background overflow-y-auto">
+        <div className="w-full min-h-full flex justify-center pt-[15vh] pb-12 px-4">
+          <LoginForm />
+        </div>
       </div>
     );
   }
