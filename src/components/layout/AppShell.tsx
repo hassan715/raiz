@@ -1,8 +1,38 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Key, Settings, Folder, Plus, X, ChevronDown, LogOut, Archive, Star } from 'lucide-react';
+import {
+  Key,
+  Settings,
+  Folder,
+  Plus,
+  X,
+  ChevronDown,
+  LogOut,
+  Archive,
+  Star,
+  ChevronRight,
+} from 'lucide-react';
 import { InnerVault, Account } from '../../types';
 import { useVault } from '../../context/VaultContext';
+import {
+  MenuTrigger,
+  Button,
+  Popover,
+  Menu,
+  MenuItem,
+  Separator,
+  ModalOverlay,
+  Modal,
+  Dialog,
+  Heading,
+  TextField,
+  Label,
+  Input,
+  TextArea,
+  FieldError,
+  Disclosure,
+  DisclosurePanel,
+} from 'react-aria-components';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -23,33 +53,34 @@ export default function AppShell({
   const [vaults, setVaults] = useState<InnerVault[]>([]);
   const [profileName, setProfileName] = useState('My Vault');
 
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const profileMenuRef = useRef<HTMLDivElement>(null);
-
+  // Create Vault State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newVaultName, setNewVaultName] = useState('');
   const [newVaultDescription, setNewVaultDescription] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState('');
 
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    vault: InnerVault;
-  } | null>(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
-
+  // Edit Vault State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [vaultToEdit, setVaultToEdit] = useState<InnerVault | null>(null);
   const [editVaultName, setEditVaultName] = useState('');
   const [editVaultDescription, setEditVaultDescription] = useState('');
   const [editError, setEditError] = useState('');
 
+  // Delete Vault State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [vaultToDelete, setVaultToDelete] = useState<InnerVault | null>(null);
   const [vaultToDeleteItemCount, setVaultToDeleteItemCount] = useState(0);
   const [confirmDeleteName, setConfirmDeleteName] = useState('');
   const [deleteError, setDeleteError] = useState('');
+
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    vault: InnerVault;
+  } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchVaults();
@@ -60,22 +91,26 @@ export default function AppShell({
     invoke<InnerVault[]>('get_vaults').then(setVaults).catch(console.error);
   };
 
+  const clearSelection = () => {
+    window.dispatchEvent(new Event('clear-selected-account'));
+  };
+
   useEffect(() => {
-    const handleDocumentClick = (e: MouseEvent) => {
-      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
-        setIsProfileMenuOpen(false);
-      }
+    const handleOutsideClick = (e: MouseEvent) => {
       if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
         setContextMenu(null);
       }
     };
-    document.addEventListener('mousedown', handleDocumentClick);
-    return () => document.removeEventListener('mousedown', handleDocumentClick);
-  }, []);
+    if (contextMenu) document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [contextMenu]);
 
-  const clearSelection = () => {
-    window.dispatchEvent(new Event('clear-selected-account'));
-  };
+  useEffect(() => {
+    if (contextMenu && contextMenuRef.current) {
+      const firstItem = contextMenuRef.current.querySelector<HTMLElement>('button');
+      firstItem?.focus();
+    }
+  }, [contextMenu]);
 
   const handleCreateVaultSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,10 +137,31 @@ export default function AppShell({
     }
   };
 
+  // Approximate rendered size of the context menu (header + 2 items + padding).
+  // Calculated before render so the menu never jumps after appearing.
+  const MENU_WIDTH = 160;
+  const MENU_HEIGHT = 118;
+
+  const getAdjustedMenuPos = (x: number, y: number) => ({
+    x: x + MENU_WIDTH > window.innerWidth ? x - MENU_WIDTH : x,
+    y: y + MENU_HEIGHT > window.innerHeight ? y - MENU_HEIGHT : y,
+  });
+
   const handleContextMenu = (e: React.MouseEvent, vault: InnerVault) => {
     e.preventDefault();
     if (vault.id === '00000000-0000-0000-0000-000000000000') return;
-    setContextMenu({ x: e.clientX, y: e.clientY, vault });
+    const { x, y } = getAdjustedMenuPos(e.clientX, e.clientY);
+    setContextMenu({ x, y, vault });
+  };
+
+  const handleVaultKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, vault: InnerVault) => {
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      if (vault.id === '00000000-0000-0000-0000-000000000000') return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const { x, y } = getAdjustedMenuPos(rect.left, rect.bottom);
+      setContextMenu({ x, y, vault });
+    }
   };
 
   const openEditModal = () => {
@@ -174,12 +230,10 @@ export default function AppShell({
     setIsCreating(true);
     try {
       await invoke('delete_inner_vault', { id: vaultToDelete.id });
-
       if (selectedVaultId === vaultToDelete.id) {
         setSelectedVaultId(null);
         clearSelection();
       }
-
       fetchVaults();
       setIsDeleteModalOpen(false);
       window.dispatchEvent(new Event('vault-deleted'));
@@ -190,13 +244,42 @@ export default function AppShell({
     }
   };
 
+  // Keyboard navigation focus ring management
+  const [kbNav, setKbNav] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Tab' || e.key.startsWith('Arrow')) setKbNav(true);
+    };
+    const onPointer = () => setKbNav(false);
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointerdown', onPointer, true);
+    };
+  }, []);
+
+  const blurRestoredFocus = () => setKbNav(false);
+
+  const kbRing = kbNav ? 'focus:ring-2 focus:ring-primary/60' : '';
+  const kbRingInset = kbNav ? 'focus:ring-2 focus:ring-primary/60 focus:ring-inset' : '';
+
   return (
     <div className="flex h-full w-full overflow-hidden relative">
-      <aside className="w-52 bg-sidebar border-r border-border flex flex-col z-10 relative shrink-0">
-        <div className="relative" ref={profileMenuRef}>
-          <button
-            onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-            className="w-full h-16 flex items-center justify-between px-4 border-b border-border hover:bg-surface transition-colors cursor-pointer"
+      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
+      <aside
+        aria-label="Application sidebar"
+        className="w-52 bg-sidebar border-r border-border flex flex-col z-10 relative shrink-0"
+      >
+        {/* RAC Profile Menu */}
+        <MenuTrigger
+          onOpenChange={(open) => {
+            if (!open) blurRestoredFocus();
+          }}
+        >
+          <Button
+            className={`w-full h-16 flex items-center justify-between px-4 border-b border-border hover:bg-surface transition-colors cursor-pointer outline-none ${kbRingInset} group`}
           >
             <div className="flex items-center overflow-hidden">
               <div className="w-8 h-8 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold mr-3 shrink-0">
@@ -207,338 +290,414 @@ export default function AppShell({
               </span>
             </div>
             <ChevronDown
-              className={`w-4 h-4 text-text-muted transition-transform shrink-0 ml-2 ${isProfileMenuOpen ? 'rotate-180' : ''}`}
+              className="w-4 h-4 text-text-muted transition-transform shrink-0 ml-2 group-data-pressed:rotate-180"
+              aria-hidden="true"
             />
-          </button>
-
-          {isProfileMenuOpen && (
-            <div className="absolute top-14 left-2 right-2 bg-surface border border-border rounded-lg shadow-xl px-2 py-1.5 z-50 animate-in fade-in slide-in-from-top-2">
-              <button
-                onClick={() => {
+          </Button>
+          {/*
+           */}
+          <Popover
+            placement="bottom start"
+            offset={-6}
+            className="w-52 bg-surface border border-border rounded-b-lg rounded-tr-lg shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-top-2"
+          >
+            <Menu className="outline-none">
+              <MenuItem
+                onAction={() => {
                   clearSelection();
                   setActiveView('settings');
-                  setIsProfileMenuOpen(false);
                 }}
-                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main hover:bg-gray-200 transition-colors"
+                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main transition-colors cursor-pointer outline-none data-focused:bg-gray-200"
               >
-                <Settings className="w-4 h-4 mr-3 text-text-muted " /> Settings
-              </button>
-              <div className="h-px bg-border my-1.5" />
-              <button
-                onClick={lockVault}
-                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main hover:bg-gray-200 transition-colors"
+                <Settings className="w-4 h-4 mr-3 text-text-muted" aria-hidden="true" /> Settings
+              </MenuItem>
+              <Separator className="h-px bg-border my-1.5 mx-2" />
+              <MenuItem
+                onAction={lockVault}
+                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main transition-colors cursor-pointer outline-none data-focused:bg-gray-200"
               >
-                <LogOut className="w-4 h-4 mr-3 text-text-muted" /> Lock Raiz
-              </button>
-            </div>
-          )}
-        </div>
+                <LogOut className="w-4 h-4 mr-3 text-text-muted" aria-hidden="true" /> Lock Raiz
+              </MenuItem>
+            </Menu>
+          </Popover>
+        </MenuTrigger>
 
-        <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          <button
-            onClick={() => {
+        {/* Core Navigation List */}
+        <nav
+          aria-label="Main Navigation"
+          className="flex flex-col flex-1 py-4 px-3 space-y-1 overflow-y-auto"
+        >
+          <Button
+            onPress={() => {
               clearSelection();
               setActiveView('vaults');
               setSelectedVaultId(null);
             }}
-            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+            aria-current={activeView === 'vaults' && selectedVaultId === null ? 'page' : undefined}
+            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md outline-none ${kbRing} transition-colors ${
               activeView === 'vaults' && selectedVaultId === null
                 ? 'bg-primary-muted text-primary'
-                : 'text-text-muted hover:bg-surface hover:text-text-main'
+                : 'text-text-muted hover:bg-surface hover:text-text-main data-[pressed]:bg-surface data-[hovered]:bg-surface'
             }`}
           >
-            <Key className="w-4 h-4 mr-3" /> All Vaults
-          </button>
+            <Key className="w-4 h-4 mr-3" aria-hidden="true" /> All Vaults
+          </Button>
 
-          <button
-            onClick={() => {
+          <Button
+            onPress={() => {
               clearSelection();
               setActiveView('favorites');
               setSelectedVaultId(null);
             }}
-            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+            aria-current={activeView === 'favorites' ? 'page' : undefined}
+            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md outline-none ${kbRing} transition-colors ${
               activeView === 'favorites'
                 ? 'bg-primary-muted text-primary'
-                : 'text-text-muted hover:bg-surface hover:text-text-main'
+                : 'text-text-muted hover:bg-surface hover:text-text-main data-[pressed]:bg-surface data-[hovered]:bg-surface'
             }`}
           >
-            <Star className="w-4 h-4 mr-3" /> Favorites
-          </button>
+            <Star className="w-4 h-4 mr-3" aria-hidden="true" /> Favorites
+          </Button>
 
-          <div className="pt-4 pb-1 px-3 flex items-center justify-between">
-            <p className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-              My Vaults
-            </p>
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="p-1 text-text-muted hover:text-primary hover:bg-surface rounded-md transition-colors"
-              title="Create New Vault"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
+          {/* ── My Vaults Disclosure Group ── */}
+          <Disclosure className="pt-4 group">
+            <div className="flex items-center justify-between w-full hover:bg-surface group">
+              <Button
+                slot="trigger"
+                className={`flex-1 flex items-center py-2 px-3 text-sm font-medium text-text-muted tracking-wider hover:text-text-main transition-colors outline-none rounded-md ${kbRing}`}
+              >
+                <ChevronRight
+                  className="w-4 h-4 mr-3 transition-transform group-data-expanded:rotate-90"
+                  aria-hidden="true"
+                />
+                My Vaults
+              </Button>
+              <Button
+                onPress={() => setIsCreateModalOpen(true)}
+                aria-label="Create New Vault"
+                className={`p-1 mr-1 text-text-muted hover:text-primary hover:bg-surface rounded-md transition-colors outline-none ${kbRing}`}
+              >
+                <Plus className="w-4 h-4" aria-hidden="true" />
+              </Button>
+            </div>
 
-          {vaults.map((vault) => (
-            <button
-              key={vault.id}
-              onClick={() => {
+            <DisclosurePanel className="space-y-1 mt-1">
+              {vaults.map((vault) => (
+                <button
+                  key={vault.id}
+                  onClick={() => {
+                    clearSelection();
+                    setActiveView('vaults');
+                    setSelectedVaultId(vault.id);
+                  }}
+                  onContextMenu={(e) => handleContextMenu(e, vault)}
+                  onKeyDown={(e) => handleVaultKeyDown(e, vault)}
+                  aria-current={
+                    activeView === 'vaults' && selectedVaultId === vault.id ? 'page' : undefined
+                  }
+                  className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+                    activeView === 'vaults' && selectedVaultId === vault.id
+                      ? 'bg-primary-muted text-primary'
+                      : 'text-text-muted hover:bg-surface hover:text-text-main'
+                  }`}
+                >
+                  <Folder className="w-4 h-4 mr-3 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{vault.name}</span>
+                </button>
+              ))}
+            </DisclosurePanel>
+          </Disclosure>
+
+          <div className="pt-3 pb-2 mt-auto">
+            <Button
+              onPress={() => {
                 clearSelection();
-                setActiveView('vaults');
-                setSelectedVaultId(vault.id);
+                setActiveView('archived');
+                setSelectedVaultId(null);
               }}
-              onContextMenu={(e) => handleContextMenu(e, vault)}
-              className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                activeView === 'vaults' && selectedVaultId === vault.id
+              aria-current={activeView === 'archived' ? 'page' : undefined}
+              className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md outline-none ${kbRing} transition-colors ${
+                activeView === 'archived'
                   ? 'bg-primary-muted text-primary'
-                  : 'text-text-muted hover:bg-surface hover:text-text-main'
+                  : 'text-text-muted hover:bg-surface hover:text-text-main data-[pressed]:bg-surface data-[hovered]:bg-surface'
               }`}
             >
-              <Folder className="w-4 h-4 mr-3" /> {vault.name}
-            </button>
-          ))}
+              <Archive className="w-4 h-4 mr-3" aria-hidden="true" /> Archived
+            </Button>
+          </div>
         </nav>
-
-        <div className="p-3 border-t border-border space-y-1">
-          <button
-            onClick={() => {
-              clearSelection();
-              setActiveView('archived');
-              setSelectedVaultId(null);
-            }}
-            className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-              activeView === 'archived'
-                ? 'bg-primary-muted text-primary'
-                : 'text-text-muted hover:bg-surface hover:text-text-main'
-            }`}
-          >
-            <Archive className="w-4 h-4 mr-3" /> Archived
-          </button>
-        </div>
       </aside>
 
       <main className="flex-1 flex flex-col relative overflow-hidden">{children}</main>
 
-      {/* --- RIGHT CLICK MODALS --- */}
+      {/* ── Context menu ── */}
       {contextMenu && (
         <div
           ref={contextMenuRef}
+          role="menu"
+          aria-label={`Actions for ${contextMenu.vault.name}`}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setContextMenu(null);
+            if (e.key === 'ArrowDown') (e.currentTarget.lastElementChild as HTMLElement)?.focus();
+            if (e.key === 'ArrowUp')
+              (e.currentTarget.firstElementChild?.nextElementSibling as HTMLElement)?.focus();
+          }}
           className="fixed z-60 w-40 bg-surface border border-border rounded-lg shadow-xl p-1 animate-in fade-in slide-in-from-top-1"
           style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-2 py-1 mb-1 border-b border-border">
+          <div className="px-2 py-1 mb-1 border-b border-border" role="presentation">
             <p className="text-xs font-medium text-text-muted truncate">
               Vault: {contextMenu.vault.name}
             </p>
           </div>
+          {/*
+            FIX 1: `focus-visible:bg-gray-200` instead of `focus:bg-gray-200`.
+            The browser does not apply :focus-visible to programmatic .focus()
+            calls that follow a pointer event, so auto-focusing the first item
+            on open no longer highlights it. Keyboard arrow-key navigation still
+            highlights correctly because those are genuine keyboard interactions.
+          */}
           <button
+            role="menuitem"
             onClick={openEditModal}
-            className="w-full text-left px-2 py-1.5 text-sm text-text-main hover:bg-gray-200 rounded-md transition-colors"
+            className="w-full text-left px-2 py-1.5 text-sm text-text-main hover:bg-gray-200 focus-visible:bg-gray-200 outline-none rounded-md transition-colors"
           >
             Edit Details
           </button>
           <button
+            role="menuitem"
             onClick={openDeleteModal}
-            className="w-full text-left px-2 py-1.5 text-sm text-text-main hover:bg-gray-200 rounded-md transition-colors"
+            className="w-full text-left px-2 py-1.5 text-sm text-text-main hover:bg-gray-200 focus-visible:bg-gray-200 outline-none rounded-md transition-colors"
           >
             Delete Vault
           </button>
         </div>
       )}
 
-      {isEditModalOpen && vaultToEdit && (
-        <div className="fixed inset-0 z-70 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsEditModalOpen(false)}
-          />
-          <div className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-text-main">Edit Vault</h2>
-              <button
-                onClick={() => setIsEditModalOpen(false)}
-                className="p-1 text-text-muted hover:text-text-main rounded-md hover:bg-background transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleEditVaultSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">
-                  Vault Name *
-                </label>
-                <input
-                  type="text"
-                  value={editVaultName}
-                  onChange={(e) => {
-                    setEditVaultName(e.target.value);
-                    setEditError('');
-                  }}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">
-                  Description (Optional)
-                </label>
-                <textarea
-                  value={editVaultDescription}
-                  onChange={(e) => setEditVaultDescription(e.target.value)}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors resize-none"
-                  rows={3}
-                />
-              </div>
-              {editError && (
-                <div className="p-3 bg-danger/10 border border-danger/20 rounded-md">
-                  <p className="text-sm text-danger font-medium text-center">{editError}</p>
+      {/* ── Create Vault Modal ── */}
+      <ModalOverlay
+        isOpen={isCreateModalOpen}
+        onOpenChange={(open) => {
+          setIsCreateModalOpen(open);
+          if (!open) blurRestoredFocus();
+        }}
+        isDismissable
+        className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm data-[entering]:animate-in data-[entering]:fade-in data-[exiting]:animate-out data-[exiting]:fade-out"
+      >
+        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 data-[entering]:animate-in data-[entering]:zoom-in-95 data-[exiting]:animate-out data-[exiting]:zoom-out-95 outline-none">
+          <Dialog className="outline-none" aria-label="Create New Vault">
+            {({ close }) => (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <Heading className="text-lg font-semibold text-text-main">
+                    Create New Vault
+                  </Heading>
+                  <Button
+                    onPress={close}
+                    className={`p-1 text-text-muted hover:text-text-main rounded-md hover:bg-background transition-colors outline-none ${kbRing}`}
+                  >
+                    <X className="w-5 h-5" aria-hidden="true" />
+                  </Button>
                 </div>
-              )}
-              <div className="pt-2 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsEditModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-text-main hover:bg-background border border-transparent rounded-md transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreating || !editVaultName.trim()}
-                  className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 transition-colors"
-                >
-                  {isCreating ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+                <form onSubmit={handleCreateVaultSubmit} className="space-y-4">
+                  <TextField
+                    isRequired
+                    autoFocus
+                    value={newVaultName}
+                    onChange={(v) => {
+                      setNewVaultName(v);
+                      setCreateError('');
+                    }}
+                    className="w-full flex flex-col gap-1"
+                  >
+                    <Label className="text-sm font-medium text-text-muted">Vault Name *</Label>
+                    <Input
+                      className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-[invalid]:border-danger"
+                      placeholder="e.g., Work, Finance, Travel"
+                    />
+                  </TextField>
+                  <TextField
+                    value={newVaultDescription}
+                    onChange={setNewVaultDescription}
+                    className="w-full flex flex-col gap-1"
+                  >
+                    <Label className="text-sm font-medium text-text-muted">
+                      Description (Optional)
+                    </Label>
+                    <TextArea
+                      className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors resize-none"
+                      placeholder="What is this vault for?"
+                      rows={3}
+                    />
+                  </TextField>
+                  {createError && (
+                    <div
+                      role="alert"
+                      className="p-3 bg-danger/10 border border-danger/20 rounded-md"
+                    >
+                      <p className="text-sm text-danger font-medium text-center">{createError}</p>
+                    </div>
+                  )}
+                  <div className="pt-2 flex justify-end gap-3">
+                    <Button
+                      onPress={close}
+                      className={`px-4 py-2 text-sm font-medium text-text-main hover:bg-background border border-transparent rounded-md transition-colors outline-none ${kbRing}`}
+                    >
+                      Cancel
+                    </Button>
+                    <button
+                      type="submit"
+                      disabled={isCreating || !newVaultName.trim()}
+                      className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 transition-colors"
+                    >
+                      {isCreating ? 'Creating...' : 'Create Vault'}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
 
-      {isDeleteModalOpen && vaultToDelete && (
-        <div className="fixed inset-0 z-70 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsDeleteModalOpen(false)}
-          />
-          <div className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-lg font-bold text-danger mb-4">Delete Vault?</h3>
-            <p className="text-sm text-text-main mb-6 leading-relaxed">
-              This vault and its {vaultToDeleteItemCount} items will be permanently deleted.
-            </p>
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-text-muted mb-2">
-                Please type <strong>{vaultToDelete.name}</strong> to confirm.
-              </label>
-              <input
-                type="text"
-                value={confirmDeleteName}
-                onChange={(e) => setConfirmDeleteName(e.target.value)}
-                className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-danger transition-colors"
-                placeholder={vaultToDelete.name}
-                autoFocus
-              />
-            </div>
-            {deleteError && <p className="text-sm text-danger mb-4 text-center">{deleteError}</p>}
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setIsDeleteModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-text-main hover:bg-background rounded-md transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteVault}
-                disabled={isCreating || confirmDeleteName !== vaultToDelete.name}
-                className="px-4 py-2 bg-danger text-white text-sm font-bold rounded-md hover:bg-danger/90 disabled:opacity-50 transition-colors shadow-sm"
-              >
-                {isCreating ? 'Deleting...' : 'Permanently delete vault'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── Edit Vault Modal ── */}
+      <ModalOverlay
+        isOpen={isEditModalOpen}
+        onOpenChange={(open) => {
+          setIsEditModalOpen(open);
+          if (!open) blurRestoredFocus();
+        }}
+        isDismissable
+        className="fixed inset-0 z-70 flex items-center justify-center bg-background/80 backdrop-blur-sm data-[entering]:animate-in data-[entering]:fade-in data-[exiting]:animate-out data-[exiting]:fade-out"
+      >
+        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 data-[entering]:animate-in data-[entering]:zoom-in-95 data-[exiting]:animate-out data-[exiting]:zoom-out-95 outline-none">
+          <Dialog className="outline-none" aria-label="Edit Vault">
+            {({ close }) => (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <Heading className="text-lg font-semibold text-text-main">Edit Vault</Heading>
+                  <Button
+                    onPress={close}
+                    className={`p-1 text-text-muted hover:text-text-main rounded-md hover:bg-background transition-colors outline-none ${kbRing}`}
+                  >
+                    <X className="w-5 h-5" aria-hidden="true" />
+                  </Button>
+                </div>
+                <form onSubmit={handleEditVaultSubmit} className="space-y-4">
+                  <TextField
+                    isRequired
+                    autoFocus
+                    value={editVaultName}
+                    onChange={(v) => {
+                      setEditVaultName(v);
+                      setEditError('');
+                    }}
+                    className="w-full flex flex-col gap-1"
+                  >
+                    <Label className="text-sm font-medium text-text-muted">Vault Name *</Label>
+                    <Input className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-[invalid]:border-danger" />
+                  </TextField>
+                  <TextField
+                    value={editVaultDescription}
+                    onChange={setEditVaultDescription}
+                    className="w-full flex flex-col gap-1"
+                  >
+                    <Label className="text-sm font-medium text-text-muted">
+                      Description (Optional)
+                    </Label>
+                    <TextArea
+                      className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors resize-none"
+                      rows={3}
+                    />
+                  </TextField>
+                  {editError && (
+                    <div
+                      role="alert"
+                      className="p-3 bg-danger/10 border border-danger/20 rounded-md"
+                    >
+                      <p className="text-sm text-danger font-medium text-center">{editError}</p>
+                    </div>
+                  )}
+                  <div className="pt-2 flex justify-end gap-3">
+                    <Button
+                      onPress={close}
+                      className={`px-4 py-2 text-sm font-medium text-text-main hover:bg-background border border-transparent rounded-md transition-colors outline-none ${kbRing}`}
+                    >
+                      Cancel
+                    </Button>
+                    <button
+                      type="submit"
+                      disabled={isCreating || !editVaultName.trim()}
+                      className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 transition-colors"
+                    >
+                      {isCreating ? 'Saving...' : 'Save Changes'}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
 
-      {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
-            onClick={() => {
-              setIsCreateModalOpen(false);
-              setCreateError('');
-            }}
-          />
-          <div className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-text-main">Create New Vault</h2>
-              <button
-                onClick={() => {
-                  setIsCreateModalOpen(false);
-                  setCreateError('');
-                }}
-                className="p-1 text-text-muted hover:text-text-main rounded-md hover:bg-background transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleCreateVaultSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">
-                  Vault Name *
-                </label>
-                <input
-                  type="text"
-                  value={newVaultName}
-                  onChange={(e) => {
-                    setNewVaultName(e.target.value);
-                    setCreateError('');
-                  }}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors"
-                  placeholder="e.g., Work, Finance, Travel"
+      {/* ── Delete Vault Modal ── */}
+      <ModalOverlay
+        isOpen={isDeleteModalOpen}
+        onOpenChange={(open) => {
+          setIsDeleteModalOpen(open);
+          if (!open) blurRestoredFocus();
+        }}
+        isDismissable
+        className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-[entering]:animate-in data-[entering]:fade-in data-[exiting]:animate-out data-[exiting]:fade-out"
+      >
+        <Modal className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 data-[entering]:animate-in data-[entering]:zoom-in-95 data-[exiting]:animate-out data-[exiting]:zoom-out-95 outline-none">
+          <Dialog className="outline-none" aria-label="Delete Vault">
+            {({ close }) => (
+              <>
+                <Heading className="text-lg font-bold text-danger mb-4">Delete Vault?</Heading>
+                <p className="text-sm text-text-main mb-6 leading-relaxed">
+                  This vault and its {vaultToDeleteItemCount} items will be permanently deleted.
+                </p>
+                <TextField
+                  isRequired
                   autoFocus
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-text-muted mb-1">
-                  Description (Optional)
-                </label>
-                <textarea
-                  value={newVaultDescription}
-                  onChange={(e) => setNewVaultDescription(e.target.value)}
-                  className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main focus:outline-none focus:border-primary transition-colors resize-none"
-                  placeholder="What is this vault for?"
-                  rows={3}
-                />
-              </div>
-              {createError && (
-                <div className="p-3 bg-danger/10 border border-danger/20 rounded-md">
-                  <p className="text-sm text-danger font-medium text-center">{createError}</p>
+                  value={confirmDeleteName}
+                  onChange={setConfirmDeleteName}
+                  className="mb-6 flex flex-col gap-2"
+                >
+                  <Label className="text-sm font-medium text-text-muted">
+                    Please type <strong>{vaultToDelete?.name}</strong> to confirm.
+                  </Label>
+                  <Input
+                    className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-danger transition-colors data-[invalid]:border-danger"
+                    placeholder={vaultToDelete?.name}
+                  />
+                  {deleteError && (
+                    <FieldError className="text-sm text-danger text-center">
+                      {deleteError}
+                    </FieldError>
+                  )}
+                </TextField>
+                <div className="flex justify-end space-x-3">
+                  <Button
+                    onPress={close}
+                    className={`px-4 py-2 text-sm font-medium text-text-main hover:bg-background rounded-md transition-colors outline-none ${kbRing}`}
+                  >
+                    Cancel
+                  </Button>
+                  <button
+                    onClick={handleDeleteVault}
+                    disabled={isCreating || confirmDeleteName !== vaultToDelete?.name}
+                    className="px-4 py-2 bg-danger text-white text-sm font-bold rounded-md hover:bg-danger/90 disabled:opacity-50 transition-colors shadow-sm"
+                  >
+                    {isCreating ? 'Deleting...' : 'Permanently delete vault'}
+                  </button>
                 </div>
-              )}
-              <div className="pt-2 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCreateModalOpen(false);
-                    setCreateError('');
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-text-main hover:bg-background border border-transparent rounded-md transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isCreating || !newVaultName.trim()}
-                  className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 transition-colors"
-                >
-                  {isCreating ? 'Creating...' : 'Create Vault'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+              </>
+            )}
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
     </div>
   );
 }
