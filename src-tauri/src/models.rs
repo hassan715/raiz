@@ -199,13 +199,75 @@ pub struct Metadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    // --- 1. VAULT LOGIC & VALIDATION TESTS ---
 
     #[test]
-    fn test_discriminated_union_schema() {
-        let acc = Account {
+    fn test_vault_initialization_defaults() {
+        let vault = Vault::new();
+        assert_eq!(
+            vault.profile_name, "Admin",
+            "Profile name should default to Admin"
+        );
+        assert_eq!(vault.tags.len(), 4, "Should initialize with 4 default tags");
+        assert_eq!(
+            vault.vaults.len(),
+            1,
+            "Should initialize with 1 default inner vault"
+        );
+        assert_eq!(
+            vault.vaults[0].id,
+            Uuid::nil(),
+            "Default vault should use nil UUID"
+        );
+        assert_eq!(
+            vault.vaults[0].name, "Personal",
+            "Default vault should be named Personal"
+        );
+    }
+
+    #[test]
+    fn test_inner_vault_crud_operations() {
+        let mut vault = Vault::new();
+
+        // Test Add
+        assert!(vault
+            .add_inner_vault("Work", Some("Work related".to_string()))
+            .is_ok());
+        assert_eq!(vault.vaults.len(), 2);
+
+        // Test Prevent Duplicate Names (case-insensitive)
+        assert!(
+            vault.add_inner_vault("WORK", None).is_err(),
+            "Should prevent duplicate vault names"
+        );
+
+        let work_vault_id = vault.vaults[1].id;
+
+        // Test Update
+        assert!(vault
+            .update_inner_vault(work_vault_id, "Office", None)
+            .is_ok());
+        assert_eq!(vault.vaults[1].name, "Office");
+
+        // Test Prevent Updating/Deleting Default Vault
+        assert!(
+            vault
+                .update_inner_vault(Uuid::nil(), "Hacked", None)
+                .is_err(),
+            "Cannot rename default vault"
+        );
+        assert!(
+            vault.delete_inner_vault(Uuid::nil()).is_err(),
+            "Cannot delete default vault"
+        );
+
+        // Test Delete and Cascade (Removing a vault should orphan/remove accounts mapped to it)
+        let dummy_acc = Account {
             id: Uuid::new_v4(),
-            vault_id: Some(Uuid::nil()),
-            account_name: "My Bank".to_string(),
+            vault_id: Some(work_vault_id),
+            account_name: "Office PC".to_string(),
             notes: None,
             tags: vec![],
             is_favorite: false,
@@ -215,23 +277,177 @@ mod tests {
                 accessed_at: 0,
                 archived_at: None,
             },
-            details: AccountDetails::CreditCard {
-                cardholder_name: Some("John Doe".to_string()),
-                card_number: Some(vec![1, 2, 3]),
-                expiration: Some("12/26".to_string()),
-                cvv: Some(vec![4, 5, 6]),
-            },
+            details: AccountDetails::SecureNote,
         };
+        vault.accounts.push(dummy_acc);
+        assert_eq!(vault.accounts.len(), 1);
 
-        // If you had serde_json in dev-dependencies, we could check string output.
-        // We verify structural integrity here.
-        if let AccountDetails::CreditCard {
-            cardholder_name, ..
-        } = acc.details
-        {
-            assert_eq!(cardholder_name.unwrap(), "John Doe");
-        } else {
-            panic!("Enum mapping failed");
+        assert!(vault.delete_inner_vault(work_vault_id).is_ok());
+        assert_eq!(vault.vaults.len(), 1, "Work vault should be deleted");
+        assert_eq!(
+            vault.accounts.len(),
+            0,
+            "Accounts tied to the deleted vault should be cascade-deleted"
+        );
+    }
+
+    // --- 2. SERDE (SERIALIZATION/DESERIALIZATION) TESTS FOR EVERY VARIANT ---
+
+    fn create_base_account(details: AccountDetails) -> Account {
+        Account {
+            id: Uuid::nil(),
+            vault_id: Some(Uuid::nil()),
+            account_name: "Test Account".to_string(),
+            notes: None,
+            tags: vec!["Test".to_string()],
+            is_favorite: true,
+            metadata: Metadata {
+                created_at: 1000,
+                updated_at: 1000,
+                accessed_at: 1000,
+                archived_at: None,
+            },
+            details,
         }
+    }
+
+    #[test]
+    fn test_login_account_serde() {
+        let details = AccountDetails::Login {
+            url: Some("https://mail.com".to_string()),
+            username: Some("johndoe".to_string()),
+            email: Some("john@mail.com".to_string()),
+            password: Some(vec![9, 9, 9]),
+            password_history: vec![],
+            has_2fa: true,
+            recovery_codes: vec![RecoveryCode {
+                code: vec![1, 2, 3],
+                is_used: false,
+            }],
+        };
+        let acc = create_base_account(details);
+
+        // Serialize: Check flattened properties
+        let serialized = serde_json::to_value(&acc).expect("Failed to serialize");
+        assert_eq!(serialized["account_type"], "Login");
+        assert_eq!(serialized["username"], "johndoe");
+        assert_eq!(serialized["has_2fa"], true);
+
+        // Deserialize: Prove bidirectional integrity
+        let deserialized: Account =
+            serde_json::from_value(serialized).expect("Failed to deserialize");
+        assert_eq!(acc, deserialized);
+    }
+
+    #[test]
+    fn test_password_account_serde() {
+        let details = AccountDetails::Password {
+            url: Some("192.168.1.1".to_string()),
+            identifier: Some("Home WiFi".to_string()),
+            password: Some(vec![1, 2, 3]),
+        };
+        let acc = create_base_account(details);
+
+        let serialized = serde_json::to_value(&acc).expect("Failed to serialize");
+        assert_eq!(serialized["account_type"], "Password");
+        assert_eq!(serialized["identifier"], "Home WiFi");
+
+        let deserialized: Account =
+            serde_json::from_value(serialized).expect("Failed to deserialize");
+        assert_eq!(acc, deserialized);
+    }
+
+    #[test]
+    fn test_secure_note_serde() {
+        let details = AccountDetails::SecureNote;
+        let acc = create_base_account(details);
+
+        let serialized = serde_json::to_value(&acc).expect("Failed to serialize");
+        assert_eq!(serialized["account_type"], "Secure Note");
+        assert!(serialized.get("username").is_none());
+
+        let deserialized: Account =
+            serde_json::from_value(serialized).expect("Failed to deserialize");
+        assert_eq!(acc, deserialized);
+    }
+
+    #[test]
+    fn test_credit_card_serde() {
+        let details = AccountDetails::CreditCard {
+            cardholder_name: Some("John Doe".to_string()),
+            card_number: Some(vec![4, 2]),
+            expiration: Some("12/26".to_string()),
+            cvv: Some(vec![1, 2, 3]),
+        };
+        let acc = create_base_account(details);
+
+        let serialized = serde_json::to_value(&acc).expect("Failed to serialize");
+        assert_eq!(serialized["account_type"], "Credit Card");
+        assert_eq!(serialized["expiration"], "12/26");
+
+        let deserialized: Account =
+            serde_json::from_value(serialized).expect("Failed to deserialize");
+        assert_eq!(acc, deserialized);
+    }
+
+    #[test]
+    fn test_identity_serde() {
+        let details = AccountDetails::Identity {
+            id_number: Some("A1234567".to_string()),
+            dob: Some("01/01/1990".to_string()),
+        };
+        let acc = create_base_account(details);
+
+        let serialized = serde_json::to_value(&acc).expect("Failed to serialize");
+        assert_eq!(serialized["account_type"], "Identity");
+        assert_eq!(serialized["id_number"], "A1234567");
+
+        let deserialized: Account =
+            serde_json::from_value(serialized).expect("Failed to deserialize");
+        assert_eq!(acc, deserialized);
+    }
+
+    #[test]
+    fn test_crypto_wallet_serde() {
+        let details = AccountDetails::CryptoWallet {
+            wallet_address: Some("0xABC123".to_string()),
+            seed_phrase: Some(vec![0, 0, 0]),
+        };
+        let acc = create_base_account(details);
+
+        let serialized = serde_json::to_value(&acc).expect("Failed to serialize");
+        assert_eq!(serialized["account_type"], "Crypto Wallet");
+        assert_eq!(serialized["wallet_address"], "0xABC123");
+
+        let deserialized: Account =
+            serde_json::from_value(serialized).expect("Failed to deserialize");
+        assert_eq!(acc, deserialized);
+    }
+
+    // --- 3. FORWARD COMPATIBILITY TEST ---
+
+    #[test]
+    fn test_unknown_account_type_fallback() {
+        // Simulating JSON generated by a future version of the app with a new account type
+        let future_json = json!({
+            "id": Uuid::nil(),
+            "vault_id": Uuid::nil(),
+            "account_name": "Quantum Key",
+            "notes": null,
+            "tags": [],
+            "is_favorite": false,
+            "metadata": { "created_at": 0, "updated_at": 0, "accessed_at": 0, "archived_at": null },
+            "account_type": "Quantum Credentials", // Does not exist in our enum
+            "quantum_state": "superposition" // Unknown property
+        });
+
+        // The app MUST NOT crash. It should gracefully deserialize into AccountDetails::Unknown
+        let deserialized: Result<Account, _> = serde_json::from_value(future_json);
+
+        assert!(
+            deserialized.is_ok(),
+            "Deserialization should succeed using #[serde(other)]"
+        );
+        assert_eq!(deserialized.unwrap().details, AccountDetails::Unknown);
     }
 }
