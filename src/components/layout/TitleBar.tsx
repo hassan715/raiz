@@ -57,7 +57,7 @@ export default function TitleBar({
     /* ROOT WRAPPER: Flat flexbox layout completely stripped of global bottom borders
        to allow the Brand anchor to descend uninterrupted into the sidebar.
     */
-    <div className="h-12 w-full select-none z-50 shrink-0 bg-background flex items-center overflow-hidden transition-colors">
+    <div className="h-13 w-full select-none z-50 shrink-0 bg-background flex items-center overflow-hidden transition-colors">
       {/* BRAND ANCHOR */}
       <div
         data-tauri-drag-region
