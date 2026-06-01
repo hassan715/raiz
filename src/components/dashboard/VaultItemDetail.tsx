@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   Copy,
@@ -22,9 +22,27 @@ import {
   Clock,
   X,
   AlertTriangle,
+  Lock,
+  FileText,
+  CreditCard,
+  User,
+  Wallet,
 } from 'lucide-react';
-import { Account, InnerVault } from '../../types';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { Account, InnerVault, LoginAccount } from '../../types';
 import BrandIcon from './BrandIcon';
+import {
+  MenuTrigger,
+  Button,
+  Popover,
+  Menu,
+  MenuItem,
+  Separator,
+  ModalOverlay,
+  Modal,
+  Dialog,
+  Heading,
+} from 'react-aria-components';
 
 interface VaultItemDetailProps {
   account: Account | null;
@@ -46,43 +64,39 @@ export default function VaultItemDetail({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Vault data states
   const [vaultName, setVaultName] = useState<string>('Personal');
   const [allVaults, setAllVaults] = useState<InnerVault[]>([]);
 
-  // States: Scroll tracking, Menus, Modals
   const [isScrolled, setIsScrolled] = useState(false);
   const [showMetadata, setShowMetadata] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
-  // Safely extract primitive IDs to use as clean dependencies
+  const [kbNav, setKbNav] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Tab' || e.key.startsWith('Arrow')) setKbNav(true);
+    };
+    const onPointer = () => setKbNav(false);
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointerdown', onPointer, true);
+    };
+  }, []);
+  const kbRing = kbNav ? 'focus:ring-2 focus:ring-primary/60 outline-none' : 'outline-none';
+
   const accountId = account?.id;
   const targetVaultId = account?.vault_id;
 
-  // Handle clicking outside the context menu to close it
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Reset local view state when switching to a different account
   useEffect(() => {
     setShowPassword(false);
     setShowMetadata(false);
-    setIsMenuOpen(false);
     setIsMoveModalOpen(false);
     setIsDeleteModalOpen(false);
   }, [accountId]);
 
-  // Safely fetch the vault name and available vaults list
   useEffect(() => {
     if (!targetVaultId) return;
 
@@ -106,13 +120,57 @@ export default function VaultItemDetail({
 
   if (!account) return null;
 
+  const dynAccount = account as unknown as Record<string, unknown>;
+
   const decodeBytes = (bytes: number[] | null | undefined): string => {
     if (!bytes || bytes.length === 0) return '';
     return new TextDecoder().decode(new Uint8Array(bytes));
   };
 
-  const passwordString = decodeBytes(account.password);
-  const notesString = decodeBytes(account.notes);
+  const getPasswordBytes = (acc: Account): number[] | null => {
+    switch (acc.account_type) {
+      case 'Login':
+      case 'Password':
+        return acc.password;
+      case 'Credit Card':
+        return acc.cvv;
+      case 'Crypto Wallet':
+        return acc.seed_phrase;
+      default:
+        return null;
+    }
+  };
+
+  const passwordString = decodeBytes(getPasswordBytes(account));
+  const rawNotes = decodeBytes(dynAccount.notes as number[] | undefined);
+
+  let finalNotesString = rawNotes;
+  let extCardNumber = '';
+  let extCardExp = '';
+  let extCardName = '';
+  let extWalletAddress = '';
+  let extIdentityName = '';
+  let extIdentityDob = '';
+  let extIdentityPhone = '';
+  let extIdentityAddress = '';
+
+  if (rawNotes.startsWith('---EXT---')) {
+    const parts = rawNotes.split('\n\n---NOTES---\n');
+    const extData = parts[0].replace('---EXT---\n', '');
+    finalNotesString = parts[1] || '';
+
+    const lines = extData.split('\n');
+    lines.forEach((line) => {
+      if (line.startsWith('Card Number: ')) extCardNumber = line.replace('Card Number: ', '');
+      if (line.startsWith('Card Exp: ')) extCardExp = line.replace('Card Exp: ', '');
+      if (line.startsWith('Card Name: ')) extCardName = line.replace('Card Name: ', '');
+      if (line.startsWith('Wallet: ')) extWalletAddress = line.replace('Wallet: ', '');
+      if (line.startsWith('Full Name: ')) extIdentityName = line.replace('Full Name: ', '');
+      if (line.startsWith('DOB: ')) extIdentityDob = line.replace('DOB: ', '');
+      if (line.startsWith('Phone: ')) extIdentityPhone = line.replace('Phone: ', '');
+      if (line.startsWith('Address: ')) extIdentityAddress = line.replace('Address: ', '');
+    });
+  }
 
   const copyToClipboard = async (text: string, fieldName: string) => {
     if (!text) return;
@@ -135,7 +193,6 @@ export default function VaultItemDetail({
     }
   };
 
-  // Archive/Restore Handler
   const handleArchiveToggle = async () => {
     if (isUpdating) return;
     setIsUpdating(true);
@@ -158,22 +215,20 @@ export default function VaultItemDetail({
     }
   };
 
-  // Move Vault Handler (Backend Orchestrated)
   const handleMoveToVault = async (newVaultId: string) => {
     if (isUpdating || account.vault_id === newVaultId) return;
     setIsUpdating(true);
     try {
-      // Direct OS-level invocation. Only safe UUIDs cross the IPC boundary.
       await invoke('move_account_to_vault', {
         accountId: account.id,
         newVaultId: newVaultId,
       });
 
-      onUpdated(); // Trigger silent refresh of the dashboard list
+      onUpdated();
       setIsMoveModalOpen(false);
       onClose();
     } catch (err) {
-      console.error('Failed to securely move account to new vault:', err);
+      console.error('Failed to securely move account:', err);
       alert('Failed to move item.');
     } finally {
       setIsUpdating(false);
@@ -181,13 +236,14 @@ export default function VaultItemDetail({
   };
 
   const toggleRecoveryCode = async (index: number) => {
-    if (isUpdating) return;
+    if (isUpdating || account.account_type !== 'Login') return;
     setIsUpdating(true);
     try {
-      const newCodes = [...account.recovery_codes];
+      const loginAcc = account as LoginAccount;
+      const newCodes = [...loginAcc.recovery_codes];
       newCodes[index].is_used = !newCodes[index].is_used;
 
-      const updatedAccount = { ...account, recovery_codes: newCodes };
+      const updatedAccount = { ...loginAcc, recovery_codes: newCodes };
       await invoke('save_account', { account: updatedAccount });
       onUpdated();
     } catch (err) {
@@ -197,21 +253,18 @@ export default function VaultItemDetail({
     }
   };
 
-  // Execute Custom Delete Handler
   const confirmAndDelete = async () => {
     if (isDeleting) return;
     setIsDeleting(true);
     try {
-      // Explicitly map the property name expected by the Rust signature
       await invoke('delete_account', { accountId: account.id });
-
       setIsDeleteModalOpen(false);
-      onDeleted(); // Trigger parent dashboard sync
-      onClose(); // Completely unmount the preview pane
+      onDeleted();
+      onClose();
     } catch (err) {
       console.error('Failed to securely delete account:', err);
       alert('Failed to permanently delete item.');
-      setIsDeleting(false); // Only reset if it failed; if successful, component unmounts anyway
+      setIsDeleting(false);
     }
   };
 
@@ -232,331 +285,405 @@ export default function VaultItemDetail({
   };
 
   const isArchived = !!account.metadata.archived_at;
+  const has2FA = !!dynAccount.has_2fa;
+  const recoveryCodes = dynAccount.recovery_codes as
+    | { code: number[]; is_used: boolean }[]
+    | undefined;
+
+  const renderItemIcon = () => {
+    switch (account.account_type) {
+      case 'Password':
+        return <Lock className="w-7 h-7 text-sky-500" />;
+      case 'Secure Note':
+        return <FileText className="w-7 h-7 text-emerald-500" />;
+      case 'Credit Card':
+        return <CreditCard className="w-7 h-7 text-indigo-500" />;
+      case 'Identity':
+        return <User className="w-7 h-7 text-amber-500" />;
+      case 'Crypto Wallet':
+        return <Wallet className="w-7 h-7 text-orange-500" />;
+      case 'Login':
+      default:
+        return <BrandIcon name={account.account_name} className="w-7 h-7" useBrandColor={true} />;
+    }
+  };
+
+  const DetailRow = ({ label, value, field }: { label: string; value: string; field: string }) => (
+    <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-center justify-between min-w-0 w-full overflow-hidden">
+      <div className="flex flex-col flex-1 min-w-0 pr-8">
+        <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
+          {label}
+        </label>
+        <p className="text-sm font-medium text-text-main truncate">{value}</p>
+      </div>
+      <Button
+        onPress={() => copyToClipboard(value, field)}
+        className={`absolute right-3 top-1/2 -translate-y-1/2 p-2 text-text-muted opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 rounded-md transition-all ${kbRing}`}
+        aria-label={`Copy ${label}`}
+      >
+        {copiedField === field ? (
+          <Check className="w-4 h-4 text-success" />
+        ) : (
+          <Copy className="w-4 h-4" />
+        )}
+      </Button>
+    </div>
+  );
+
+  const PasswordRow = ({
+    label,
+    value,
+    field,
+  }: {
+    label: string;
+    value: string;
+    field: string;
+  }) => (
+    <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-center justify-between min-w-0 w-full overflow-hidden">
+      <div className="flex flex-col flex-1 min-w-0 pr-24">
+        <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
+          {label}
+        </label>
+        <p className="text-sm font-mono text-text-main truncate">
+          {showPassword ? value : '••••••••••••••••'}
+        </p>
+      </div>
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center opacity-0 group-hover:opacity-100 transition-opacity bg-background pl-2">
+        <Button
+          onPress={() => setShowPassword(!showPassword)}
+          className={`p-2 text-text-muted hover:text-text-main hover:bg-surface rounded-md transition-colors mr-1 ${kbRing}`}
+          aria-label={showPassword ? 'Hide value' : 'Show value'}
+        >
+          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </Button>
+        <Button
+          onPress={() => copyToClipboard(value, field)}
+          className={`p-2 text-text-muted hover:text-primary hover:bg-primary/10 rounded-md transition-colors ${kbRing}`}
+          aria-label={`Copy ${label}`}
+        >
+          {copiedField === field ? (
+            <Check className="w-4 h-4 text-success" />
+          ) : (
+            <Copy className="w-4 h-4" />
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+
+  const UrlRow = ({ label, value }: { label: string; value: string }) => (
+    <div
+      className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-center cursor-pointer"
+      onClick={() => openUrl(value)}
+    >
+      <div className="flex flex-col flex-1 min-w-0 pr-8">
+        <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider pointer-events-none">
+          {label}
+        </label>
+        <div className="text-sm font-medium text-primary flex items-center min-w-0 pointer-events-none">
+          <span className="truncate min-w-0">{value}</span>
+          <ExternalLink className="w-3.5 h-3.5 ml-2 shrink-0" />
+        </div>
+      </div>
+    </div>
+  );
+
+  const NotesRow = ({ value, field }: { value: string; field: string }) => (
+    <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-start justify-between min-w-0 w-full overflow-hidden">
+      <div className="flex flex-col flex-1 min-w-0 pr-8">
+        {account.account_type !== 'Secure Note' && (
+          <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
+            Note
+          </label>
+        )}
+        <p className="text-sm text-text-main whitespace-pre-wrap font-mono leading-relaxed break-all w-full overflow-hidden">
+          {value}
+        </p>
+      </div>
+      <Button
+        onPress={() => copyToClipboard(value, field)}
+        className={`absolute right-3 top-3 p-2 text-text-muted opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 rounded-md transition-all ${kbRing}`}
+        aria-label="Copy Note"
+      >
+        {copiedField === field ? (
+          <Check className="w-4 h-4 text-success" />
+        ) : (
+          <Copy className="w-4 h-4" />
+        )}
+      </Button>
+    </div>
+  );
+
+  const renderCredentials = () => {
+    switch (account.account_type) {
+      case 'Login':
+        return (
+          <>
+            {dynAccount.username && (
+              <DetailRow label="Username" value={dynAccount.username as string} field="username" />
+            )}
+            {dynAccount.email && (
+              <DetailRow label="Email" value={dynAccount.email as string} field="email" />
+            )}
+            {passwordString && (
+              <PasswordRow label="Password" value={passwordString} field="password" />
+            )}
+            {dynAccount.url && <UrlRow label="Website" value={dynAccount.url as string} />}
+          </>
+        );
+      case 'Password':
+        return (
+          <>
+            {dynAccount.identifier && (
+              <DetailRow
+                label="Identifier"
+                value={dynAccount.identifier as string}
+                field="identifier"
+              />
+            )}
+            {passwordString && (
+              <PasswordRow label="Password / Secret Key" value={passwordString} field="password" />
+            )}
+            {dynAccount.url && <UrlRow label="Endpoint URL" value={dynAccount.url as string} />}
+          </>
+        );
+      case 'Secure Note':
+        return null;
+      case 'Credit Card':
+        return (
+          <>
+            {extCardName && (
+              <DetailRow label="Cardholder Name" value={extCardName} field="cardholder_name" />
+            )}
+            {extCardNumber && (
+              <PasswordRow label="Card Number" value={extCardNumber} field="card_number" />
+            )}
+            {extCardExp && <DetailRow label="Expiration" value={extCardExp} field="expiration" />}
+            {passwordString && (
+              <PasswordRow label="CVV / Security Code" value={passwordString} field="cvv" />
+            )}
+          </>
+        );
+      case 'Identity':
+        return (
+          <>
+            {extIdentityName && (
+              <DetailRow label="Full Legal Name" value={extIdentityName} field="full_name" />
+            )}
+            {dynAccount.id_number && (
+              <DetailRow
+                label="ID / Passport Number"
+                value={dynAccount.id_number as string}
+                field="id_number"
+              />
+            )}
+            {extIdentityDob && (
+              <DetailRow label="Date of Birth" value={extIdentityDob} field="dob" />
+            )}
+            {extIdentityPhone && (
+              <DetailRow label="Phone Number" value={extIdentityPhone} field="phone" />
+            )}
+            {extIdentityAddress && (
+              <DetailRow label="Address" value={extIdentityAddress} field="address" />
+            )}
+          </>
+        );
+      case 'Crypto Wallet':
+        return (
+          <>
+            {extWalletAddress && (
+              <DetailRow label="Wallet Address" value={extWalletAddress} field="wallet_address" />
+            )}
+            {passwordString && (
+              <PasswordRow
+                label="Seed Phrase / Private Key"
+                value={passwordString}
+                field="seed_phrase"
+              />
+            )}
+          </>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-surface animate-in fade-in duration-200 min-w-0">
-      {/* ============================================================== */}
-      {/* TOP NAVBAR (Dynamic Shadow)                                    */}
-      {/* ============================================================== */}
+    <div className="flex-1 flex flex-col h-full bg-surface animate-in fade-in duration-200 min-w-0 overflow-x-hidden">
       <div
-        className={`flex items-center justify-between px-6 py-3 bg-background shrink-0 z-20 transition-all duration-200 ${
-          isScrolled ? 'shadow-md border-b border-border' : 'border-b border-transparent'
-        }`}
+        className={`flex items-center justify-between px-6 py-3 bg-background shrink-0 z-20 transition-all duration-200 min-w-0 ${isScrolled ? 'shadow-md border-b border-border' : 'border-b border-transparent'}`}
       >
-        <div className="flex items-center text-xs font-semibold text-text-muted">
-          <Folder className="w-3.5 h-3.5 mr-2 opacity-70" />
-          <span className="uppercase tracking-wider">In: {vaultName}</span>
+        <div className="flex items-center text-xs font-semibold text-text-muted min-w-0 pr-4">
+          <Folder className="w-3.5 h-3.5 mr-2 opacity-70 shrink-0" />
+          <span className="uppercase tracking-wider truncate">In: {vaultName}</span>
         </div>
 
-        <div className="flex items-center space-x-1 relative">
-          <button
-            onClick={() => onEditRequest(account)}
-            className="flex items-center px-3 py-1.5 text-sm font-semibold text-text-muted hover:text-primary rounded-md hover:bg-primary/10 transition-colors"
+        <div className="flex items-center space-x-1 relative shrink-0">
+          <Button
+            onPress={() => onEditRequest(account)}
+            className={`flex items-center px-3 py-1.5 text-sm font-semibold text-text-muted hover:text-primary rounded-md hover:bg-primary/10 transition-colors ${kbRing}`}
           >
-            <Edit className="w-4 h-4 mr-1.5" />
-            Edit
-          </button>
+            <Edit className="w-4 h-4 mr-1.5" /> Edit
+          </Button>
 
           <div className="w-px h-5 bg-border mx-1"></div>
 
-          {/* Context Menu Wrapper */}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className={`p-1.5 rounded-md transition-colors ${
-                isMenuOpen
-                  ? 'bg-text-main/10 text-text-main'
-                  : 'text-text-muted hover:bg-text-main/10 hover:text-text-main'
-              }`}
-              title="More Options"
+          <MenuTrigger>
+            <Button
+              className={`p-1.5 rounded-md text-text-muted hover:bg-text-main/10 hover:text-text-main transition-colors ${kbRing}`}
+              aria-label="More Options"
             >
               <MoreVertical className="w-5 h-5" />
-            </button>
-
-            {/* Context Menu Dropdown */}
-            {isMenuOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-surface border border-border rounded-lg shadow-xl px-2 py-1.5 z-50 animate-in fade-in slide-in-from-top-2">
-                <button
-                  onClick={() => {
-                    toggleFavorite();
-                    setIsMenuOpen(false);
-                  }}
-                  disabled={isUpdating}
-                  className="w-full flex items-center rounded-md px-3 py-2 text-sm text-text-main hover:bg-text-main/10 transition-colors"
+            </Button>
+            <Popover
+              placement="bottom end"
+              className="w-48 bg-surface border border-border rounded-lg shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-top-2 data-exiting:animate-outata-[exiting]:fade-out data-[exiting]:slide-out-to-top-2"
+            >
+              <Menu className="outline-none flex flex-col">
+                <MenuItem
+                  onAction={toggleFavorite}
+                  className="w-full flex items-center rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-gray-200 transition-colors"
                 >
                   <Star
                     className={`w-4 h-4 mr-3 ${account.is_favorite ? 'text-warning' : 'text-text-muted'}`}
                     fill={account.is_favorite ? 'currentColor' : 'none'}
                   />
                   {account.is_favorite ? 'Remove Favorite' : 'Add to Favorites'}
-                </button>
+                </MenuItem>
 
-                <button
-                  onClick={() => {
-                    setIsMoveModalOpen(true);
-                    setIsMenuOpen(false);
-                  }}
-                  className="w-full flex rounded-md items-center px-3 py-2 text-sm text-text-main hover:bg-text-main/10 transition-colors"
+                <MenuItem
+                  onAction={() => setIsMoveModalOpen(true)}
+                  className="w-full flex items-center rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-gray-200ransition-colors"
                 >
-                  <FolderInput className="w-4 h-4 mr-3 text-text-muted" />
-                  Move...
-                </button>
+                  <FolderInput className="w-4 h-4 mr-3 text-text-muted" /> Move...
+                </MenuItem>
 
-                <div className="h-px bg-border my-1.5 mx-2" />
+                <Separator className="h-px bg-border my-1.5 mx-2" />
 
-                <button
-                  onClick={() => {
-                    handleArchiveToggle();
-                    setIsMenuOpen(false);
-                  }}
-                  disabled={isUpdating}
-                  className="w-full rounded-md flex items-center px-3 py-2 text-sm text-text-main hover:bg-text-main/10 transition-colors"
+                <MenuItem
+                  onAction={handleArchiveToggle}
+                  className="w-full flex items-center rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-gray-200 transition-colors"
                 >
                   {isArchived ? (
                     <>
-                      <RefreshCw className="w-4 h-4 mr-3 text-text-muted" />
-                      Restore Item
+                      <RefreshCw className="w-4 h-4 mr-3 text-text-muted" /> Restore Item
                     </>
                   ) : (
                     <>
-                      <Archive className="w-4 h-4 mr-3 text-text-muted" />
-                      Archive Item
+                      <Archive className="w-4 h-4 mr-3 text-text-muted" /> Archive Item
                     </>
                   )}
-                </button>
+                </MenuItem>
 
-                {/* UPDATED: Triggers custom confirmation dialog instead of browser confirm */}
-                <button
-                  onClick={() => {
-                    setIsDeleteModalOpen(true);
-                    setIsMenuOpen(false);
-                  }}
-                  disabled={isDeleting}
-                  className="w-full rounded-md flex items-center px-3 py-2 text-sm text-danger hover:bg-danger/10 transition-colors"
+                <MenuItem
+                  onAction={() => setIsDeleteModalOpen(true)}
+                  className="w-full flex items-center rounded-md px-3 py-2 text-sm text-danger cursor-pointer outline-none data-focused:bg-danger/10 transition-colors"
                 >
-                  <Trash2 className="w-4 h-4 mr-3" />
-                  Delete
-                </button>
-              </div>
-            )}
-          </div>
+                  <Trash2 className="w-4 h-4 mr-3" /> Delete
+                </MenuItem>
+              </Menu>
+            </Popover>
+          </MenuTrigger>
         </div>
       </div>
 
-      {/* ============================================================== */}
-      {/* SCROLLABLE BODY                                                */}
-      {/* ============================================================== */}
-      <div className="flex-1 overflow-y-auto z-0" onScroll={handleScroll}>
-        {/* Header & Branding */}
-        <div className="flex flex-col px-8 pt-4 pb-6">
-          <div className="flex items-center space-x-4 mb-1">
-            <div className="w-14 h-14 bg-background border border-border rounded-2xl flex items-center justify-center text-text-muted overflow-hidden shadow-sm shrink-0">
-              <BrandIcon name={account.account_name} className="w-7 h-7" useBrandColor={true} />
+      <div
+        className="flex-1 overflow-y-auto overflow-x-hidden z-0 min-w-0 flex flex-col"
+        onScroll={handleScroll}
+      >
+        <div className="flex flex-col px-8 pt-4 pb-6 min-w-0">
+          <div className="flex items-center space-x-4 mb-1 min-w-0">
+            <div className="w-14 h-14 bg-background border border-border rounded-2xl flex items-center justify-center text-text-muted overflow-hidden shrink-0">
+              {renderItemIcon()}
             </div>
-            <div className="flex flex-col overflow-hidden">
+            <div className="flex flex-col min-w-0">
               <h2 className="text-xl font-bold text-text-main">{account.account_name}</h2>
             </div>
           </div>
         </div>
 
-        <div className="px-4 pb-8 space-y-8">
-          {/* Main Credentials */}
-          <div className="space-y-5">
-            {account.username && (
-              <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors shadow-sm">
-                <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
-                  Username
-                </label>
-                <p className="text-sm font-medium text-text-main pr-10 truncate">
-                  {account.username}
-                </p>
-                <button
-                  onClick={() => copyToClipboard(account.username!, 'username')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-text-muted opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 rounded-md transition-all"
-                  title="Copy Username"
-                >
-                  {copiedField === 'username' ? (
-                    <Check className="w-4 h-4 text-success" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-            )}
-
-            {account.email && (
-              <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors shadow-sm">
-                <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
-                  Email
-                </label>
-                <p className="text-sm font-medium text-text-main pr-10 truncate">{account.email}</p>
-                <button
-                  onClick={() => copyToClipboard(account.email!, 'email')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-text-muted opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 rounded-md transition-all"
-                >
-                  {copiedField === 'email' ? (
-                    <Check className="w-4 h-4 text-success" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-            )}
-
-            <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors shadow-sm">
-              <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
-                Password
-              </label>
-              <div className="flex items-center">
-                <p className="text-sm font-mono text-text-main pr-24 tracking-wider truncate">
-                  {showPassword ? passwordString : '••••••••••••••••'}
-                </p>
-              </div>
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center opacity-0 group-hover:opacity-100 transition-opacity bg-background pl-2">
-                <button
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="p-2 text-text-muted hover:text-text-main hover:bg-surface rounded-md transition-colors mr-1"
-                  title={showPassword ? 'Hide Password' : 'Show Password'}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-                <button
-                  onClick={() => copyToClipboard(passwordString, 'password')}
-                  className="p-2 text-text-muted hover:text-primary hover:bg-primary/10 rounded-md transition-colors"
-                  title="Copy Password"
-                >
-                  {copiedField === 'password' ? (
-                    <Check className="w-4 h-4 text-success" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {account.url && (
-              <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors shadow-sm">
-                <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
-                  Website
-                </label>
-                <a
-                  href={account.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm font-medium text-primary hover:underline flex items-center truncate pr-8"
-                >
-                  {account.url}
-                  <ExternalLink className="w-3.5 h-3.5 ml-2 shrink-0" />
-                </a>
-              </div>
-            )}
-          </div>
-
-          <hr className="border-border" />
-
-          {/* Security & 2FA */}
-          <div className="space-y-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center text-sm font-medium text-text-main">
-                <ShieldCheck
-                  className={`w-5 h-5 mr-2.5 ${account.has_2fa ? 'text-success' : 'text-text-muted'}`}
-                />
-                Two-Factor Authentication
-              </div>
-              <span
-                className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${account.has_2fa ? 'bg-success/10 text-success' : 'bg-surface border border-border text-text-muted'}`}
-              >
-                {account.has_2fa ? 'Enabled' : 'Disabled'}
-              </span>
-            </div>
-
-            {account.has_2fa && account.recovery_codes && account.recovery_codes.length > 0 && (
-              <div className="p-5 bg-background border border-border rounded-xl shadow-sm">
-                <label className="block text-xs font-bold text-text-muted mb-4 uppercase tracking-wider">
-                  Recovery Codes
-                </label>
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                  {account.recovery_codes.map((rc, idx) => {
-                    const codeString = decodeBytes(rc.code);
-                    return (
-                      <div key={idx} className="flex items-center space-x-2">
-                        <button
-                          onClick={() => !rc.is_used && copyToClipboard(codeString, `code-${idx}`)}
-                          disabled={rc.is_used}
-                          className={`flex-1 text-sm font-mono p-2.5 rounded-lg text-left transition-colors border flex items-center justify-between ${
-                            rc.is_used
-                              ? 'bg-surface border-transparent text-text-muted line-through opacity-40 cursor-not-allowed'
-                              : 'bg-background border-border text-text-main hover:border-primary hover:text-primary cursor-pointer'
-                          }`}
-                        >
-                          {codeString}
-                          {copiedField === `code-${idx}` && (
-                            <Check className="w-4 h-4 text-success" />
-                          )}
-                        </button>
-
-                        <button
-                          onClick={() => toggleRecoveryCode(idx)}
-                          className={`p-2.5 border rounded-lg transition-colors shrink-0 ${rc.is_used ? 'bg-primary border-primary text-white' : 'bg-background border-border text-text-muted hover:border-primary hover:text-primary'}`}
-                          title={rc.is_used ? 'Mark as Unused' : 'Mark as Used'}
-                        >
-                          <CheckSquare className="w-4 h-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Secure Notes */}
-          {notesString && (
-            <>
-              <hr className="border-border" />
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <label className="block text-xs font-bold text-text-muted uppercase tracking-wider">
-                    Secure Notes
-                  </label>
-                  <button
-                    onClick={() => copyToClipboard(notesString, 'notes')}
-                    className="text-text-muted hover:text-primary transition-colors flex items-center text-xs font-medium"
-                    title="Copy Notes"
-                  >
-                    {copiedField === 'notes' ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 mr-1 text-success" /> Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5 mr-1" /> Copy
-                      </>
-                    )}
-                  </button>
-                </div>
-                <div className="p-5 bg-background border border-border rounded-xl shadow-sm">
-                  <p className="text-sm text-text-main whitespace-pre-wrap font-mono leading-relaxed">
-                    {notesString}
-                  </p>
-                </div>
-              </div>
-            </>
+        <div className="px-4 pb-8 space-y-8 min-w-0 flex-1">
+          {account.account_type !== 'Secure Note' && (
+            <div className="space-y-5 min-w-0 w-full">{renderCredentials()}</div>
           )}
 
-          {/* Tags */}
+          {account.account_type === 'Login' &&
+            (has2FA || (recoveryCodes && recoveryCodes.length > 0)) && (
+              <>
+                <hr className="border-border" />
+                <div className="space-y-5 min-w-0 w-full">
+                  <div className="flex items-center justify-between min-w-0">
+                    <div className="flex items-center text-sm font-medium text-text-main min-w-0 mr-3">
+                      <ShieldCheck
+                        className={`w-5 h-5 mr-2.5 shrink-0 ${has2FA ? 'text-success' : 'text-text-muted'}`}
+                      />
+                      <span className="truncate">Two-Factor Authentication</span>
+                    </div>
+                    <span
+                      className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full shrink-0 ml-3 ${has2FA ? 'bg-success/10 text-success' : 'bg-surface border border-border text-text-muted'}`}
+                    >
+                      {has2FA ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </div>
+                  {recoveryCodes && recoveryCodes.length > 0 && (
+                    <div className="p-5 bg-background border border-border rounded-xl min-w-0 w-full">
+                      <label className="block text-xs font-bold text-text-muted mb-4 uppercase tracking-wider">
+                        Recovery Codes
+                      </label>
+                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 min-w-0">
+                        {recoveryCodes.map(
+                          (rc: { code: number[]; is_used: boolean }, idx: number) => {
+                            const codeString = decodeBytes(rc.code);
+                            return (
+                              <div key={idx} className="flex items-center space-x-2 min-w-0">
+                                <Button
+                                  onPress={() =>
+                                    !rc.is_used && copyToClipboard(codeString, `code-${idx}`)
+                                  }
+                                  isDisabled={rc.is_used}
+                                  className={`flex-1 min-w-0 text-sm font-mono p-2.5 rounded-lg text-left transition-colors border flex items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${rc.is_used ? 'bg-surface border-transparent text-text-muted line-through opacity-40 cursor-not-allowed' : 'bg-background border-border text-text-main hover:border-primary hover:text-primary cursor-pointer'}`}
+                                >
+                                  <span className="truncate">{codeString}</span>
+                                  {copiedField === `code-${idx}` && (
+                                    <Check className="w-4 h-4 text-success shrink-0 ml-2" />
+                                  )}
+                                </Button>
+                                <Button
+                                  onPress={() => toggleRecoveryCode(idx)}
+                                  className={`p-2.5 border rounded-lg transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${rc.is_used ? 'bg-primary border-primary text-white' : 'bg-background border-border text-text-muted hover:border-primary hover:text-primary'}`}
+                                  aria-label={rc.is_used ? 'Mark as Unused' : 'Mark as Used'}
+                                >
+                                  <CheckSquare className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            );
+                          }
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+          {finalNotesString && (
+            <div className="min-w-0 w-full">
+              <NotesRow value={finalNotesString} field="notes" />
+            </div>
+          )}
+
           {account.tags && account.tags.length > 0 && (
             <>
               <hr className="border-border" />
-              <div>
+              <div className="min-w-0 w-full">
                 <label className="block text-xs font-bold text-text-muted mb-3 uppercase tracking-wider">
                   Tags
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 min-w-0">
                   {account.tags.map((tag) => (
                     <span
                       key={tag}
-                      className="px-3 py-1.5 bg-background border border-border text-text-muted hover:text-text-main transition-colors cursor-default text-xs font-semibold rounded-lg"
+                      className="px-3 py-1.5 bg-background border border-border text-text-muted hover:text-text-main transition-colors cursor-default text-xs font-semibold rounded-lg truncate max-w-full"
                     >
                       #{tag}
                     </span>
@@ -566,60 +693,55 @@ export default function VaultItemDetail({
             </>
           )}
 
-          {/* COLLAPSIBLE TIMELINE FOOTER */}
-          <div className="pt-6">
-            <button
-              onClick={() => setShowMetadata(!showMetadata)}
-              className="flex items-center text-left text-sm font-medium text-text-muted hover:text-text-main hover:bg-text-main/5 px-3 py-2 rounded-md transition-colors w-full"
+          <div className="pt-6 min-w-0 w-full">
+            <Button
+              onPress={() => setShowMetadata(!showMetadata)}
+              className={`flex items-start text-left text-sm font-medium text-text-muted hover:text-text-main hover:bg-text-main/5 px-3 py-2 rounded-md transition-colors w-full min-w-0 ${kbRing}`}
             >
               {showMetadata ? (
-                <ChevronDown className="w-4 h-4 mr-2 opacity-70 shrink-0" />
+                <ChevronDown className="w-4 h-4 mr-2 mt-0.5 opacity-70 shrink-0" />
               ) : (
-                <ChevronRight className="w-4 h-4 mr-2 opacity-70 shrink-0" />
+                <ChevronRight className="w-4 h-4 mr-2 mt-0.5 opacity-70 shrink-0" />
               )}
-
-              {isArchived ? (
-                <span>Archived at: {formatDate(account.metadata.archived_at)}</span>
-              ) : (
-                <span>Last accessed: {formatDate(account.metadata.accessed_at)}</span>
-              )}
-            </button>
-
+              <span className="whitespace-normal leading-tight">
+                {isArchived
+                  ? `Archived at: ${formatDate(account.metadata.archived_at)}`
+                  : `Last accessed: ${formatDate(account.metadata.accessed_at)}`}
+              </span>
+            </Button>
             {showMetadata && (
-              <div className="p-5 bg-background border border-border rounded-xl shadow-sm mt-3 animate-in fade-in slide-in-from-top-2 duration-200 mx-3">
+              <div className="p-5 bg-background border border-border rounded-xl mt-3 animate-in fade-in slide-in-from-top-2 duration-200 mx-3 min-w-0">
                 <div className="relative pl-6 border-l-2 border-border/50 ml-2 space-y-6 py-1">
                   <div className="relative">
-                    <div className="absolute -left-[29px] top-0.5 w-2.5 h-2.5 bg-text-muted rounded-full ring-4 ring-background" />
-                    <div className="flex flex-col">
+                    <div className="absolute -left-7.25 top-0.5 w-2.5 h-2.5 bg-text-muted rounded-full ring-4 ring-background" />
+                    <div className="flex flex-col min-w-0">
                       <div className="flex items-center text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1.5">
                         <Calendar className="w-3 h-3 mr-1.5 opacity-70" /> Created
                       </div>
-                      <p className="text-xs font-medium text-text-main">
+                      <p className="text-xs font-medium text-text-main truncate">
                         {formatDate(account.metadata.created_at)}
                       </p>
                     </div>
                   </div>
-
                   <div className="relative">
-                    <div className="absolute -left-[29px] top-0.5 w-2.5 h-2.5 bg-primary rounded-full ring-4 ring-background" />
-                    <div className="flex flex-col">
+                    <div className="absolute -left-7.25 top-0.5 w-2.5 h-2.5 bg-primary rounded-full ring-4 ring-background" />
+                    <div className="flex flex-col min-w-0">
                       <div className="flex items-center text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1.5">
                         <Edit className="w-3 h-3 mr-1.5 opacity-70" /> Last Updated
                       </div>
-                      <p className="text-xs font-medium text-text-main">
+                      <p className="text-xs font-medium text-text-main truncate">
                         {formatDate(account.metadata.updated_at)}
                       </p>
                     </div>
                   </div>
-
                   {isArchived && (
                     <div className="relative animate-in fade-in duration-200">
-                      <div className="absolute -left-[29px] top-0.5 w-2.5 h-2.5 bg-text-muted rounded-full ring-4 ring-background" />
-                      <div className="flex flex-col">
+                      <div className="absolute -left-7.25 top-0.5 w-2.5 h-2.5 bg-text-muted rounded-full ring-4 ring-background" />
+                      <div className="flex flex-col min-w-0">
                         <div className="flex items-center text-[10px] font-bold text-text-muted uppercase tracking-wider mb-1.5">
                           <Clock className="w-3 h-3 mr-1.5 opacity-70" /> Last Accessed
                         </div>
-                        <p className="text-xs font-medium text-text-main">
+                        <p className="text-xs font-medium text-text-main truncate">
                           {formatDate(account.metadata.accessed_at)}
                         </p>
                       </div>
@@ -632,133 +754,121 @@ export default function VaultItemDetail({
         </div>
       </div>
 
-      {/* ============================================================== */}
-      {/* MOVE ITEM OVERLAY MODAL                                        */}
-      {/* ============================================================== */}
-      {isMoveModalOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsMoveModalOpen(false)}
-          />
-          <div className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-lg font-semibold text-text-main">Move Item</h3>
-              <button
-                onClick={() => setIsMoveModalOpen(false)}
-                className="p-1 text-text-muted hover:text-text-main rounded-md hover:bg-background transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-text-muted mb-4">
-              Select a destination vault for <strong>{account.account_name}</strong>:
-            </p>
-
-            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-              {/* Default Personal Vault Option */}
-              <button
-                onClick={() => handleMoveToVault('00000000-0000-0000-0000-000000000000')}
-                disabled={isUpdating || account.vault_id === '00000000-0000-0000-0000-000000000000'}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors border ${
-                  account.vault_id === '00000000-0000-0000-0000-000000000000'
-                    ? 'bg-primary/5 border-primary text-primary cursor-default'
-                    : 'bg-background border-border text-text-main hover:border-primary/50 hover:text-primary cursor-pointer'
-                }`}
-              >
-                <span className="flex items-center">
-                  <Folder className="w-4 h-4 mr-3 shrink-0" />
-                  Personal (Default)
-                </span>
-                {account.vault_id === '00000000-0000-0000-0000-000000000000' && (
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-primary/10 rounded">
-                    Current
-                  </span>
-                )}
-              </button>
-
-              {/* Dynamic Inner Vaults */}
-              {allVaults
-                .filter((vault) => vault.id !== '00000000-0000-0000-0000-000000000000')
-                .map((vault) => {
-                  const isCurrent = account.vault_id === vault.id;
-                  return (
-                    <button
-                      key={vault.id}
-                      onClick={() => handleMoveToVault(vault.id)}
-                      disabled={isUpdating || isCurrent}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors border ${
-                        isCurrent
-                          ? 'bg-primary/5 border-primary text-primary cursor-default'
-                          : 'bg-background border-border text-text-main hover:border-primary/50 hover:text-primary cursor-pointer'
-                      }`}
-                    >
-                      <span className="flex items-center truncate pr-2">
-                        <Folder className="w-4 h-4 mr-3 shrink-0" />
-                        <span className="truncate">{vault.name}</span>
+      <ModalOverlay
+        isOpen={isMoveModalOpen}
+        onOpenChange={setIsMoveModalOpen}
+        className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
+      >
+        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-sm p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none">
+          <Dialog className="outline-none">
+            {({ close }) => (
+              <>
+                <div className="flex items-center justify-between mb-2">
+                  <Heading className="text-lg font-semibold text-text-main">Move Item</Heading>
+                  <Button
+                    onPress={close}
+                    className={`p-1 text-text-muted hover:text-text-main rounded-md hover:bg-background transition-colors ${kbRing}`}
+                  >
+                    <X className="w-5 h-5" />
+                  </Button>
+                </div>
+                <p className="text-xs text-text-muted mb-4">
+                  Select a destination vault for <strong>{account.account_name}</strong>:
+                </p>
+                <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                  <Button
+                    onPress={() => handleMoveToVault('00000000-0000-0000-0000-000000000000')}
+                    isDisabled={
+                      isUpdating || account.vault_id === '00000000-0000-0000-0000-000000000000'
+                    }
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors border ${account.vault_id === '00000000-0000-0000-0000-000000000000' ? 'bg-primary/5 border-primary text-primary cursor-default' : 'bg-background border-border text-text-main hover:border-primary/50 hover:text-primary cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary/60'}`}
+                  >
+                    <span className="flex items-center">
+                      <Folder className="w-4 h-4 mr-3 shrink-0" /> Personal (Default)
+                    </span>
+                    {account.vault_id === '00000000-0000-0000-0000-000000000000' && (
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-primary/10 rounded">
+                        Current
                       </span>
-                      {isCurrent && (
-                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-primary/10 rounded shrink-0">
-                          Current
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-            </div>
+                    )}
+                  </Button>
+                  {allVaults
+                    .filter((vault) => vault.id !== '00000000-0000-0000-0000-000000000000')
+                    .map((vault) => {
+                      const isCurrent = account.vault_id === vault.id;
+                      return (
+                        <Button
+                          key={vault.id}
+                          onPress={() => handleMoveToVault(vault.id)}
+                          isDisabled={isUpdating || isCurrent}
+                          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors border ${isCurrent ? 'bg-primary/5 border-primary text-primary cursor-default' : 'bg-background border-border text-text-main hover:border-primary/50 hover:text-primary cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary/60'}`}
+                        >
+                          <span className="flex items-center truncate pr-2">
+                            <Folder className="w-4 h-4 mr-3 shrink-0" />
+                            <span className="truncate">{vault.name}</span>
+                          </span>
+                          {isCurrent && (
+                            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 bg-primary/10 rounded shrink-0">
+                              Current
+                            </span>
+                          )}
+                        </Button>
+                      );
+                    })}
+                </div>
+                <div className="mt-5 flex justify-end">
+                  <Button
+                    onPress={close}
+                    className={`px-4 py-2 text-sm font-medium text-text-main hover:bg-background rounded-md transition-colors ${kbRing}`}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </>
+            )}
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
 
-            <div className="mt-5 flex justify-end">
-              <button
-                onClick={() => setIsMoveModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-text-main hover:bg-background rounded-md transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* CUSTOM DELETE WARNING MODAL                                    */}
-      {/* ============================================================== */}
-      {isDeleteModalOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-background/80 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsDeleteModalOpen(false)}
-          />
-          <div className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center mb-4 text-danger">
-              <AlertTriangle className="w-6 h-6 mr-3 shrink-0" />
-              <h3 className="text-lg font-bold">Delete Item?</h3>
-            </div>
-
-            <p className="text-sm text-text-main mb-6 leading-relaxed">
-              Are you sure you want to permanently delete <strong>{account.account_name}</strong>?
-              This action cannot be undone and credentials will be purged from disk immediately.
-            </p>
-
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setIsDeleteModalOpen(false)}
-                disabled={isDeleting}
-                className="px-4 py-2 text-sm font-medium text-text-main hover:bg-background rounded-md transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmAndDelete}
-                disabled={isDeleting}
-                className="px-4 py-2 bg-danger text-white text-sm font-bold rounded-md hover:bg-danger/90 disabled:opacity-50 transition-colors shadow-sm"
-              >
-                {isDeleting ? 'Deleting...' : 'Permanently Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ModalOverlay
+        isOpen={isDeleteModalOpen}
+        onOpenChange={setIsDeleteModalOpen}
+        className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
+      >
+        <Modal className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none">
+          <Dialog className="outline-none">
+            {({ close }) => (
+              <>
+                <div className="flex items-center mb-4 text-danger">
+                  <AlertTriangle className="w-6 h-6 mr-3 shrink-0" />
+                  <Heading className="text-lg font-bold">Delete Item?</Heading>
+                </div>
+                <p className="text-sm text-text-main mb-6 leading-relaxed">
+                  Are you sure you want to permanently delete{' '}
+                  <strong>{account.account_name}</strong>? This action cannot be undone and
+                  credentials will be purged from disk immediately.
+                </p>
+                <div className="flex justify-end space-x-3">
+                  <Button
+                    onPress={close}
+                    isDisabled={isDeleting}
+                    className={`px-4 py-2 text-sm font-medium text-text-main hover:bg-background rounded-md transition-colors ${kbRing}`}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onPress={confirmAndDelete}
+                    isDisabled={isDeleting}
+                    className={`px-4 py-2 bg-danger text-white text-sm font-bold rounded-md hover:bg-danger/90 disabled:opacity-50 transition-colors shadow-sm ${kbRing}`}
+                  >
+                    {isDeleting ? 'Deleting...' : 'Permanently Delete'}
+                  </Button>
+                </div>
+              </>
+            )}
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
     </div>
   );
 }

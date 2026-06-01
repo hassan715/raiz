@@ -1,6 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Key, ShieldAlert, Star, Archive, Fingerprint } from 'lucide-react';
+import {
+  Key,
+  ShieldAlert,
+  Star,
+  Archive,
+  Fingerprint,
+  Lock,
+  FileText,
+  CreditCard,
+  User,
+  Wallet,
+} from 'lucide-react';
 import { Account, InnerVault } from '../../types';
 import VaultItemForm from './VaultItemForm';
 import BrandIcon from './BrandIcon';
@@ -98,14 +109,65 @@ export default function VaultDashboard({
       if (selectedVaultId && acc.vault_id !== selectedVaultId) return false;
     }
 
-    const matchesSearch =
-      acc.account_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      acc.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      acc.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      acc.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+    // --- FIX: Type-safe dynamic search filtering ---
+    const searchLower = searchQuery.toLowerCase();
 
-    return matchesSearch;
+    if (acc.account_name.toLowerCase().includes(searchLower)) return true;
+    if (acc.tags.some((tag) => tag.toLowerCase().includes(searchLower))) return true;
+
+    // Safely check properties based on discriminated type
+    if (acc.account_type === 'Login') {
+      if (acc.username?.toLowerCase().includes(searchLower)) return true;
+      if (acc.email?.toLowerCase().includes(searchLower)) return true;
+    } else if (acc.account_type === 'Password') {
+      if (acc.identifier?.toLowerCase().includes(searchLower)) return true;
+    } else if (acc.account_type === 'Identity') {
+      if (acc.id_number?.toLowerCase().includes(searchLower)) return true;
+    }
+
+    return false;
   });
+
+  // --- FIX: Type-safe subtitle extractor for the list preview ---
+  const getAccountSubtitle = (account: Account): string => {
+    switch (account.account_type) {
+      case 'Login':
+        return account.username || account.email || 'Login';
+      case 'Password':
+        return account.identifier || 'Password';
+      case 'Credit Card':
+        return 'Credit Card'; // Card numbers are encrypted bytes, don't show here
+      case 'Identity':
+        return account.id_number || 'Identity';
+      case 'Crypto Wallet':
+        return account.wallet_address
+          ? `${account.wallet_address.substring(0, 8)}...`
+          : 'Crypto Wallet';
+      case 'Secure Note':
+        return 'Secure Note';
+      default:
+        return 'Unknown';
+    }
+  };
+
+  // --- Dynamic Avatar Render Helper for the Sidebar List ---
+  const renderItemIcon = (account: Account) => {
+    switch (account.account_type) {
+      case 'Password':
+        return <Lock className="w-4 h-4 text-sky-500" />;
+      case 'Secure Note':
+        return <FileText className="w-4 h-4 text-emerald-500" />;
+      case 'Credit Card':
+        return <CreditCard className="w-4 h-4 text-indigo-500" />;
+      case 'Identity':
+        return <User className="w-4 h-4 text-amber-500" />;
+      case 'Crypto Wallet':
+        return <Wallet className="w-4 h-4 text-orange-500" />;
+      case 'Login':
+      default:
+        return <BrandIcon name={account.account_name} className="w-4 h-4" useBrandColor={false} />;
+    }
+  };
 
   return (
     <div className="flex flex-row h-full w-full bg-background overflow-hidden">
@@ -151,7 +213,7 @@ export default function VaultDashboard({
                     onClick={() => setSelectedAccount(account)}
                     className={`group relative p-2.5 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
                       isSelected
-                        ? 'bg-primary/5 border-primary ring-1 ring-primary shadow-sm'
+                        ? 'bg-primary/5 border-primary ring-0 ring-primary shadow-sm'
                         : 'bg-surface border-border hover:border-primary/50'
                     }`}
                   >
@@ -159,7 +221,7 @@ export default function VaultDashboard({
                       <div
                         className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-primary/10 text-primary' : 'bg-background border border-border text-text-muted group-hover:text-primary'}`}
                       >
-                        <BrandIcon name={account.account_name} className="w-4 h-4" />
+                        {renderItemIcon(account)}
                       </div>
                       <div className="overflow-hidden">
                         <h3
@@ -167,8 +229,9 @@ export default function VaultDashboard({
                         >
                           {account.account_name}
                         </h3>
-                        <p className="text-xs text-text-muted truncate max-w-[120px]">
-                          {account.username || account.email || account.account_type}
+                        <p className="text-xs text-text-muted truncate max-w-120px">
+                          {/* FIX: Use the type-safe extractor */}
+                          {getAccountSubtitle(account)}
                         </p>
                       </div>
                     </div>
@@ -189,7 +252,7 @@ export default function VaultDashboard({
       {/* ============================================================== */}
       {/* RIGHT PANE: ITEM DETAILS PREVIEW                               */}
       {/* ============================================================== */}
-      <div className="flex-1 flex flex-col h-full bg-surface min-w-[320px] relative shrink-0">
+      <div className="flex-1 flex flex-col h-full bg-surface min-w-0 relative overflow-hidden">
         {selectedAccount ? (
           <VaultItemDetail
             account={selectedAccount}

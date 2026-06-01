@@ -165,7 +165,7 @@ pub fn update_vault(vault: &Vault, dek: &[u8; 32], file_path: &str) -> Result<()
 mod tests {
     use super::*;
     use crate::crypto::generate_recovery_phrase;
-    use crate::models::{Account, Metadata};
+    use crate::models::{Account, AccountDetails, Metadata};
     use std::fs;
     use uuid::Uuid;
 
@@ -186,26 +186,28 @@ mod tests {
             load_vault(password, test_file).expect("Failed to load via Master Password");
 
         // 3. Test Active Memory Update (Add an account without the Master Password)
+        // FIX: Constructed the account using the new Discriminated Union schema
         let new_account = Account {
             id: Uuid::new_v4(),
             vault_id: Some(Uuid::nil()), // Added the default Personal vault ID
             account_name: "Test GitHub".to_string(),
-            account_type: "Website".to_string(),
-            url: None,
-            username: None,
-            email: None,
-            password: vec![1, 2, 3], // Dummy encrypted bytes
-            password_history: vec![],
-            recovery_codes: vec![],
             notes: None,
             tags: vec![],
             is_favorite: false,
-            has_2fa: false,
             metadata: Metadata {
                 created_at: 0,
                 updated_at: 0,
                 accessed_at: 0,
                 archived_at: None,
+            },
+            details: AccountDetails::Login {
+                url: None,
+                username: None,
+                email: None,
+                password: Some(vec![1, 2, 3]), // Dummy encrypted bytes
+                password_history: vec![],
+                has_2fa: false,
+                recovery_codes: vec![],
             },
         };
 
