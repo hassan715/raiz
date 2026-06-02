@@ -54,9 +54,6 @@ export default function TitleBar({
   }, [appWindow]);
 
   return (
-    /* ROOT WRAPPER: Flat flexbox layout completely stripped of global bottom borders
-       to allow the Brand anchor to descend uninterrupted into the sidebar.
-    */
     <div className="h-13 w-full select-none z-50 shrink-0 bg-background flex items-center overflow-hidden transition-colors">
       {/* BRAND ANCHOR */}
       <div
@@ -76,58 +73,62 @@ export default function TitleBar({
       <div
         data-tauri-drag-region
         onDoubleClick={handleToggleMaximize}
-        className={`flex-1 h-full flex items-center justify-between bg-background pl-6 gap-3 transition-colors ${
+        className={`flex-1 h-full flex items-center justify-between bg-background pl-6 transition-colors ${
           hasBottomBorder ? 'border-b border-border' : ''
         }`}
       >
-        {/* Universal Search Input Wrapper */}
-        {!disableActions && (
-          <div
-            className="relative w-full max-w-md"
-            onClick={(e) => e.stopPropagation()}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Search credentials, notes, tags..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-surface border border-border rounded-md text-sm text-text-main focus:outline-none focus:border-primary transition-all"
-            />
-          </div>
-        )}
+        {/* Left Side: Actions */}
+        <div
+          className="flex items-center gap-3 w-full max-w-2xl"
+          data-tauri-drag-region
+          onDoubleClick={handleToggleMaximize}
+        >
+          {/* Universal Search Input Wrapper */}
+          {!disableActions && (
+            <div
+              className="relative w-full max-w-md"
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search credentials, notes, tags..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 bg-surface border border-border rounded-md text-sm text-text-main focus:outline-none focus:border-primary transition-all"
+              />
+            </div>
+          )}
 
-        {/* Instantiation Trigger Button */}
-        {!disableActions && (
-          <button
-            onClick={onNewItemClick}
-            onDoubleClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            className="flex items-center px-3 py-1.5 bg-primary text-white text-xs font-medium rounded-md hover:bg-primary-hover transition-colors shadow-sm shrink-0 cursor-pointer"
-          >
-            <Plus className="w-4 h-4 mr-1.5 shrink-0 pointer-events-none" />
-            New Item
-          </button>
-        )}
+          {/* Instantiation Trigger Button */}
+          {!disableActions && (
+            <button
+              onClick={onNewItemClick}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="flex items-center px-3 py-1.5 bg-primary text-white text-xs font-medium rounded-md hover:bg-primary-hover transition-colors shadow-sm shrink-0 cursor-pointer"
+            >
+              <Plus className="w-4 h-4 mr-1.5 shrink-0 pointer-events-none" />
+              New Item
+            </button>
+          )}
+        </div>
 
-        {/* Flexible structural filler */}
+        {/* Flexible structural filler to ensure space between inputs and OS controls */}
         <div
           data-tauri-drag-region
           onDoubleClick={handleToggleMaximize}
-          className="flex-1 h-full"
+          className="flex-1 h-full min-w-[32px]"
         />
 
         {/* Native OS Frame Operations Wrapper */}
-        <div
-          className="flex items-center space-x-1 shrink-0 h-full pr-2"
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+        <div className="flex h-full shrink-0" onMouseDown={(e) => e.stopPropagation()}>
           <button
             onClick={() => appWindow.minimize()}
             onDoubleClick={(e) => e.stopPropagation()}
-            className="p-2 hover:bg-surface rounded text-text-muted hover:text-text-main transition-colors cursor-pointer"
+            className="h-full w-[46px] flex items-center justify-center hover:bg-gray-200 text-text-muted transition-colors"
             title="Minimize"
           >
             <Minus className="w-4 h-4 pointer-events-none" />
@@ -136,7 +137,7 @@ export default function TitleBar({
           <button
             onClick={handleToggleMaximize}
             onDoubleClick={(e) => e.stopPropagation()}
-            className="p-2 hover:bg-surface rounded text-text-muted hover:text-text-main transition-colors cursor-pointer"
+            className="h-full w-[46px] flex items-center justify-center hover:bg-gray-200 text-text-muted transition-colors"
             title={isMaximized ? 'Restore' : 'Maximize'}
           >
             {isMaximized ? (
@@ -149,7 +150,7 @@ export default function TitleBar({
           <button
             onClick={() => appWindow.close()}
             onDoubleClick={(e) => e.stopPropagation()}
-            className="p-2 hover:bg-danger/10 rounded text-text-muted hover:text-danger transition-colors cursor-pointer"
+            className="h-full w-[46px] flex items-center justify-center hover:bg-danger text-text-muted hover:text-white transition-colors"
             title="Close"
           >
             <X className="w-4 h-4 pointer-events-none" />
