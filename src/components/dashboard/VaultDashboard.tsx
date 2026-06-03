@@ -11,8 +11,13 @@ import {
   CreditCard,
   User,
   Wallet,
+  Filter,
+  ArrowUpDown,
+  Check,
+  ChevronDown,
 } from 'lucide-react';
-import { Account, InnerVault } from '../../types';
+import { MenuTrigger, Button, Popover, Menu, MenuItem, Separator } from 'react-aria-components';
+import { Account } from '../../types';
 import VaultItemForm from './VaultItemForm';
 import BrandIcon from './BrandIcon';
 import VaultItemDetail from './VaultItemDetail';
@@ -39,40 +44,35 @@ export default function VaultDashboard({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [vaultName, setVaultName] = useState('All Vaults');
-
-  const loadAccounts = useCallback(
-    async (showSpinner = true) => {
-      if (showSpinner) setIsLoading(true);
-      try {
-        const data = await invoke<Account[]>('get_accounts');
-        setAccounts(data);
-
-        setSelectedAccount((current) => {
-          if (!current) return null;
-          return data.find((a) => a.id === current.id) || null;
-        });
-
-        if (activeView === 'archived') {
-          setVaultName('Archived Items');
-        } else if (activeView === 'favorites') {
-          setVaultName('Favorites');
-        } else if (selectedVaultId) {
-          const vaults = await invoke<InnerVault[]>('get_vaults');
-          const active = vaults.find((v) => v.id === selectedVaultId);
-          setVaultName(active ? active.name : 'All Vaults');
-        } else {
-          setVaultName('All Vaults');
-        }
-      } catch (error) {
-        const err = error as Error;
-        setError(err.toString());
-      } finally {
-        if (showSpinner) setIsLoading(false);
-      }
-    },
-    [selectedVaultId, activeView]
+  // Filter and Sort State
+  const [typeFilter, setTypeFilter] = useState<string>('All');
+  const [sortField, setSortField] = useState<'title' | 'created_at' | 'updated_at' | 'accessed_at'>(
+    'updated_at'
   );
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Reset the type filter exclusively when the vault or main view changes
+  useEffect(() => {
+    setTypeFilter('All');
+  }, [selectedVaultId, activeView]);
+
+  const loadAccounts = useCallback(async (showSpinner = true) => {
+    if (showSpinner) setIsLoading(true);
+    try {
+      const data = await invoke<Account[]>('get_accounts');
+      setAccounts(data);
+
+      setSelectedAccount((current) => {
+        if (!current) return null;
+        return data.find((a) => a.id === current.id) || null;
+      });
+    } catch (error) {
+      const err = error as Error;
+      setError(err.toString());
+    } finally {
+      if (showSpinner) setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     loadAccounts(true);
@@ -89,7 +89,6 @@ export default function VaultDashboard({
     };
   }, [loadAccounts]);
 
-  // Trap external creation triggers passed from TitleBar
   useEffect(() => {
     if (isCreatingTrigger) {
       setIsCreating(true);
@@ -97,7 +96,15 @@ export default function VaultDashboard({
     }
   }, [isCreatingTrigger, resetCreatingTrigger]);
 
-  const filteredAccounts = accounts.filter((acc) => {
+  const getSortValue = (acc: Account, field: string) => {
+    if (field === 'title') return acc.account_name.toLowerCase();
+    if (field === 'created_at') return acc.metadata.created_at;
+    if (field === 'updated_at') return acc.metadata.updated_at;
+    if (field === 'accessed_at') return acc.metadata.accessed_at;
+    return 0;
+  };
+
+  const baseFilteredAccounts = accounts.filter((acc) => {
     const isArchived = !!acc.metadata.archived_at;
 
     if (activeView === 'archived') {
@@ -109,13 +116,11 @@ export default function VaultDashboard({
       if (selectedVaultId && acc.vault_id !== selectedVaultId) return false;
     }
 
-    // --- FIX: Type-safe dynamic search filtering ---
     const searchLower = searchQuery.toLowerCase();
 
     if (acc.account_name.toLowerCase().includes(searchLower)) return true;
     if (acc.tags.some((tag) => tag.toLowerCase().includes(searchLower))) return true;
 
-    // Safely check properties based on discriminated type
     if (acc.account_type === 'Login') {
       if (acc.username?.toLowerCase().includes(searchLower)) return true;
       if (acc.email?.toLowerCase().includes(searchLower)) return true;
@@ -128,7 +133,22 @@ export default function VaultDashboard({
     return false;
   });
 
-  // --- FIX: Type-safe subtitle extractor for the list preview ---
+  const availableTypes = [
+    'All',
+    ...Array.from(new Set(baseFilteredAccounts.map((a) => a.account_type))),
+  ];
+
+  const filteredAccounts = baseFilteredAccounts
+    .filter((acc) => typeFilter === 'All' || acc.account_type === typeFilter)
+    .sort((a, b) => {
+      const valA = getSortValue(a, sortField);
+      const valB = getSortValue(b, sortField);
+
+      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
   const getAccountSubtitle = (account: Account): string => {
     switch (account.account_type) {
       case 'Login':
@@ -136,7 +156,7 @@ export default function VaultDashboard({
       case 'Password':
         return account.identifier || 'Password';
       case 'Credit Card':
-        return 'Credit Card'; // Card numbers are encrypted bytes, don't show here
+        return 'Credit Card';
       case 'Identity':
         return account.id_number || 'Identity';
       case 'Crypto Wallet':
@@ -150,7 +170,6 @@ export default function VaultDashboard({
     }
   };
 
-  // --- Dynamic Avatar Render Helper for the Sidebar List ---
   const renderItemIcon = (account: Account) => {
     switch (account.account_type) {
       case 'Password':
@@ -175,11 +194,125 @@ export default function VaultDashboard({
       {/* MIDDLE PANE: CATEGORY ITEM LIST                                */}
       {/* ============================================================== */}
       <div className="w-64 flex flex-col h-full border-r border-border bg-background z-10 shrink-0 overflow-hidden">
-        {/* Simple inner panel context tag */}
-        <header className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 bg-surface/30">
-          <h2 className="text-xs font-bold text-text-muted tracking-wide uppercase truncate">
-            {vaultName}
-          </h2>
+        <header className="flex items-center justify-between px-2 h-12.5 shrink-0 bg-surface/30">
+          <div className="flex items-center">
+            {/* Dynamic Filter Menu (Left) */}
+            <MenuTrigger>
+              <Button
+                aria-label="Filter items by type"
+                className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm font-semibold text-text-main hover:bg-text-main/5 transition-colors outline-none data-focus-visible:ring-2 data-focus-visible:ring-primary/60"
+              >
+                <Filter className="w-3.5 h-3.5 text-text-muted" />
+                <span>{typeFilter === 'All' ? 'All Types' : typeFilter}</span>
+                <ChevronDown className="w-3.5 h-3.5 text-text-muted opacity-70" />
+              </Button>
+              <Popover
+                placement="bottom start"
+                className="w-48 bg-surface border border-border rounded-xl shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:fade-out data-[exiting]:zoom-out-95"
+              >
+                <Menu
+                  aria-label="Filter by type"
+                  className="outline-none flex flex-col"
+                  onAction={(key) => setTypeFilter(key as string)}
+                >
+                  {availableTypes.map((type) => (
+                    <MenuItem
+                      key={type}
+                      id={type}
+                      className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-primary/10 data-focused:text-primary transition-colors"
+                    >
+                      {type === 'All' ? 'All Types' : type}
+                      {typeFilter === type && (
+                        <Check className="w-4 h-4 text-primary shrink-0 ml-2" />
+                      )}
+                    </MenuItem>
+                  ))}
+                </Menu>
+              </Popover>
+            </MenuTrigger>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Sort Menu (Right) */}
+            <MenuTrigger>
+              <Button
+                aria-label="Sort items"
+                className="p-1.5 rounded-md text-text-muted hover:bg-text-main/10 hover:text-text-main transition-colors outline-none data-focus-visible:ring-2 data-focus-visible:ring-primary/60"
+              >
+                <ArrowUpDown className="w-4 h-4" />
+              </Button>
+              <Popover
+                placement="bottom end"
+                className="w-48 bg-surface border border-border rounded-xl shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:fade-out data-[exiting]:zoom-out-95"
+              >
+                <div
+                  id="sort-menu-heading"
+                  className="px-3 pt-1.5 pb-2 text-xs font-bold text-text-muted tracking-wider"
+                >
+                  Sort By
+                </div>
+                <Menu aria-labelledby="sort-menu-heading" className="outline-none flex flex-col">
+                  <MenuItem
+                    onAction={() => setSortField('title')}
+                    className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-primary/10 data-focused:text-primary transition-colors"
+                  >
+                    Title
+                    {sortField === 'title' && (
+                      <Check className="w-4 h-4 text-primary shrink-0 ml-2" />
+                    )}
+                  </MenuItem>
+                  <MenuItem
+                    onAction={() => setSortField('created_at')}
+                    className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-primary/10 data-focused:text-primary transition-colors"
+                  >
+                    Date Created
+                    {sortField === 'created_at' && (
+                      <Check className="w-4 h-4 text-primary shrink-0 ml-2" />
+                    )}
+                  </MenuItem>
+                  <MenuItem
+                    onAction={() => setSortField('updated_at')}
+                    className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-primary/10 data-focused:text-primary transition-colors"
+                  >
+                    Date Modified
+                    {sortField === 'updated_at' && (
+                      <Check className="w-4 h-4 text-primary shrink-0 ml-2" />
+                    )}
+                  </MenuItem>
+                  <MenuItem
+                    onAction={() => setSortField('accessed_at')}
+                    className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-primary/10 data-focused:text-primary transition-colors"
+                  >
+                    Date Accessed
+                    {sortField === 'accessed_at' && (
+                      <Check className="w-4 h-4 text-primary shrink-0 ml-2" />
+                    )}
+                  </MenuItem>
+
+                  <Separator className="h-px bg-border my-1.5 mx-2" />
+
+                  <MenuItem
+                    onAction={() => setSortOrder('asc')}
+                    className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-primary/10 data-focused:text-primary transition-colors"
+                  >
+                    {sortField === 'title' ? 'A to Z' : 'Oldest First'}
+                    {sortOrder === 'asc' && (
+                      <Check className="w-4 h-4 text-primary shrink-0 ml-2" />
+                    )}
+                  </MenuItem>
+                  <MenuItem
+                    onAction={() => setSortOrder('desc')}
+                    className="w-full flex items-center justify-between rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-primary/10 data-focused:text-primary transition-colors"
+                  >
+                    {sortField === 'title' ? 'Z to A' : 'Newest First'}
+                    {sortOrder === 'desc' && (
+                      <Check className="w-4 h-4 text-primary shrink-0 ml-2" />
+                    )}
+                  </MenuItem>
+                </Menu>
+              </Popover>
+            </MenuTrigger>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -230,7 +363,6 @@ export default function VaultDashboard({
                           {account.account_name}
                         </h3>
                         <p className="text-xs text-text-muted truncate max-w-120px">
-                          {/* FIX: Use the type-safe extractor */}
                           {getAccountSubtitle(account)}
                         </p>
                       </div>
