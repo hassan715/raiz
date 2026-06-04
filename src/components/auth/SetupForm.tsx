@@ -82,7 +82,7 @@ export default function SetupForm() {
   };
 
   return (
-    <div className="w-full max-w-sm mx-auto animate-in fade-in duration-300">
+    <div className="w-full max-w-sm mx-auto animate-in fade-in duration-300 select-none">
       {/* Header Context Group: Dynamically maps the subtext based on the view state */}
       <div className="flex flex-col items-start mb-5">
         <h2 className="text-xl font-bold text-text-main tracking-tight mb-1 text-left">

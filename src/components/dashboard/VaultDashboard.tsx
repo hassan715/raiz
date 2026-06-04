@@ -189,7 +189,7 @@ export default function VaultDashboard({
   };
 
   return (
-    <div className="flex flex-row h-full w-full bg-background overflow-hidden">
+    <div className="flex flex-row h-full w-full bg-background overflow-hidden select-none">
       {/* ============================================================== */}
       {/* MIDDLE PANE: CATEGORY ITEM LIST                                */}
       {/* ============================================================== */}
@@ -208,7 +208,7 @@ export default function VaultDashboard({
               </Button>
               <Popover
                 placement="bottom start"
-                className="w-48 bg-surface border border-border rounded-xl shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:fade-out data-[exiting]:zoom-out-95"
+                className="w-48 bg-surface border border-border rounded-xl shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:fade-out data-[exiting]:zoom-out-95 select-none"
               >
                 <Menu
                   aria-label="Filter by type"
@@ -243,7 +243,7 @@ export default function VaultDashboard({
               </Button>
               <Popover
                 placement="bottom end"
-                className="w-48 bg-surface border border-border rounded-xl shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:fade-out data-[exiting]:zoom-out-95"
+                className="w-48 bg-surface border border-border rounded-xl shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:fade-out data-[exiting]:zoom-out-95 select-none"
               >
                 <div
                   id="sort-menu-heading"

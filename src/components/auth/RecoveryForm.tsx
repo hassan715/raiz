@@ -94,7 +94,7 @@ export default function RecoveryForm({ onBack }: RecoveryFormProps) {
   };
 
   return (
-    <div className="w-full max-w-sm mx-auto animate-in fade-in duration-300">
+    <div className="w-full max-w-sm mx-auto animate-in fade-in duration-300 select-none">
       {/* Header — step context announced as a heading */}
       <div className="flex flex-col items-start mb-5">
         <h2 className="text-xl font-bold text-text-main tracking-tight mb-1 text-left">
@@ -139,7 +139,7 @@ export default function RecoveryForm({ onBack }: RecoveryFormProps) {
               aria-describedby={error ? errorId : undefined}
               aria-invalid={!!error}
               aria-required="true"
-              className="w-full px-4 py-3 bg-surface border border-border rounded-lg text-text-main focus:outline-none focus:border-primary text-sm min-h-[120px] resize-none disabled:opacity-50 transition-colors text-left"
+              className="w-full px-4 py-3 bg-surface border border-border rounded-lg text-text-main focus:outline-none focus:border-primary text-sm min-h-30 resize-none disabled:opacity-50 transition-colors text-left"
               disabled={isLoading}
               required
               autoFocus
@@ -356,7 +356,7 @@ export default function RecoveryForm({ onBack }: RecoveryFormProps) {
               className="absolute top-3 right-3 p-1.5 bg-background border border-border rounded-md text-text-muted hover:text-text-main transition-colors cursor-pointer"
             >
               {copied ? (
-                <Check className="w-3.5 h-3.5 text-success stroke-[3]" aria-hidden="true" />
+                <Check className="w-3.5 h-3.5 text-success stroke-3" aria-hidden="true" />
               ) : (
                 <Copy className="w-3.5 h-3.5" aria-hidden="true" />
               )}

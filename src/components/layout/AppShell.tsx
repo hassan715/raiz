@@ -266,7 +266,7 @@ export default function AppShell({
   const kbRingInset = kbNav ? 'focus:ring-2 focus:ring-primary/60 focus:ring-inset' : '';
 
   return (
-    <div className="flex h-full w-full overflow-hidden relative">
+    <div className="flex h-full w-full overflow-hidden relative select-none">
       {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <aside
         aria-label="Application sidebar"
@@ -299,7 +299,7 @@ export default function AppShell({
           <Popover
             placement="bottom start"
             offset={-6}
-            className="w-52 bg-surface border border-border rounded-b-lg rounded-tr-lg shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-top-2"
+            className="w-52 bg-surface border border-border rounded-b-lg rounded-tr-lg shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-top-2 select-none"
           >
             <Menu className="outline-none">
               <MenuItem
@@ -337,7 +337,7 @@ export default function AppShell({
             className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md outline-none ${kbRing} transition-colors ${
               activeView === 'vaults' && selectedVaultId === null
                 ? 'bg-primary-muted text-primary'
-                : 'text-text-muted hover:bg-surface hover:text-text-main data-[pressed]:bg-surface data-[hovered]:bg-surface'
+                : 'text-text-muted hover:bg-surface hover:text-text-main data-pressed:bg-surface data-hovered:bg-surface'
             }`}
           >
             <Key className="w-4 h-4 mr-3" aria-hidden="true" /> All Vaults
@@ -353,7 +353,7 @@ export default function AppShell({
             className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md outline-none ${kbRing} transition-colors ${
               activeView === 'favorites'
                 ? 'bg-primary-muted text-primary'
-                : 'text-text-muted hover:bg-surface hover:text-text-main data-[pressed]:bg-surface data-[hovered]:bg-surface'
+                : 'text-text-muted hover:bg-surface hover:text-text-main data-pressed:bg-surface data-hovered:bg-surface'
             }`}
           >
             <Star className="w-4 h-4 mr-3" aria-hidden="true" /> Favorites
@@ -419,7 +419,7 @@ export default function AppShell({
               className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md outline-none ${kbRing} transition-colors ${
                 activeView === 'archived'
                   ? 'bg-primary-muted text-primary'
-                  : 'text-text-muted hover:bg-surface hover:text-text-main data-[pressed]:bg-surface data-[hovered]:bg-surface'
+                  : 'text-text-muted hover:bg-surface hover:text-text-main data-pressed:bg-surface data-hovered:bg-surface'
               }`}
             >
               <Archive className="w-4 h-4 mr-3" aria-hidden="true" /> Archived
@@ -442,7 +442,7 @@ export default function AppShell({
             if (e.key === 'ArrowUp')
               (e.currentTarget.firstElementChild?.nextElementSibling as HTMLElement)?.focus();
           }}
-          className="fixed z-60 w-40 bg-surface border border-border rounded-lg shadow-xl p-1 animate-in fade-in slide-in-from-top-1"
+          className="fixed z-60 w-40 bg-surface border border-border rounded-lg shadow-xl p-1 animate-in fade-in slide-in-from-top-1 select-none"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
           <div className="px-2 py-1 mb-1 border-b border-border" role="presentation">
@@ -450,13 +450,6 @@ export default function AppShell({
               Vault: {contextMenu.vault.name}
             </p>
           </div>
-          {/*
-            FIX 1: `focus-visible:bg-gray-200` instead of `focus:bg-gray-200`.
-            The browser does not apply :focus-visible to programmatic .focus()
-            calls that follow a pointer event, so auto-focusing the first item
-            on open no longer highlights it. Keyboard arrow-key navigation still
-            highlights correctly because those are genuine keyboard interactions.
-          */}
           <button
             role="menuitem"
             onClick={openEditModal}
@@ -482,9 +475,9 @@ export default function AppShell({
           if (!open) blurRestoredFocus();
         }}
         isDismissable
-        className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm data-[entering]:animate-in data-[entering]:fade-in data-[exiting]:animate-out data-[exiting]:fade-out"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
       >
-        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 data-[entering]:animate-in data-[entering]:zoom-in-95 data-[exiting]:animate-out data-[exiting]:zoom-out-95 outline-none">
+        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
           <Dialog className="outline-none" aria-label="Create New Vault">
             {({ close }) => (
               <>
@@ -512,7 +505,7 @@ export default function AppShell({
                   >
                     <Label className="text-sm font-medium text-text-muted">Vault Name *</Label>
                     <Input
-                      className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-[invalid]:border-danger"
+                      className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-invalid:border-danger"
                       placeholder="e.g., Work, Finance, Travel"
                     />
                   </TextField>
@@ -568,9 +561,9 @@ export default function AppShell({
           if (!open) blurRestoredFocus();
         }}
         isDismissable
-        className="fixed inset-0 z-70 flex items-center justify-center bg-background/80 backdrop-blur-sm data-[entering]:animate-in data-[entering]:fade-in data-[exiting]:animate-out data-[exiting]:fade-out"
+        className="fixed inset-0 z-70 flex items-center justify-center bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
       >
-        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 data-[entering]:animate-in data-[entering]:zoom-in-95 data-[exiting]:animate-out data-[exiting]:zoom-out-95 outline-none">
+        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
           <Dialog className="outline-none" aria-label="Edit Vault">
             {({ close }) => (
               <>
@@ -595,7 +588,7 @@ export default function AppShell({
                     className="w-full flex flex-col gap-1"
                   >
                     <Label className="text-sm font-medium text-text-muted">Vault Name *</Label>
-                    <Input className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-[invalid]:border-danger" />
+                    <Input className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-invalid:border-danger" />
                   </TextField>
                   <TextField
                     value={editVaultDescription}
@@ -648,9 +641,9 @@ export default function AppShell({
           if (!open) blurRestoredFocus();
         }}
         isDismissable
-        className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-[entering]:animate-in data-[entering]:fade-in data-[exiting]:animate-out data-[exiting]:fade-out"
+        className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
       >
-        <Modal className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 data-[entering]:animate-in data-[entering]:zoom-in-95 data-[exiting]:animate-out data-[exiting]:zoom-out-95 outline-none">
+        <Modal className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
           <Dialog className="outline-none" aria-label="Delete Vault">
             {({ close }) => (
               <>
@@ -669,7 +662,7 @@ export default function AppShell({
                     Please type <strong>{vaultToDelete?.name}</strong> to confirm.
                   </Label>
                   <Input
-                    className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-danger transition-colors data-[invalid]:border-danger"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-danger transition-colors data-invalid:border-danger"
                     placeholder={vaultToDelete?.name}
                   />
                   {deleteError && (
