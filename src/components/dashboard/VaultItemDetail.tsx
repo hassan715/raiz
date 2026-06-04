@@ -314,7 +314,7 @@ export default function VaultItemDetail({
         <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
           {label}
         </label>
-        <p className="text-sm font-medium text-text-main truncate">{value}</p>
+        <p className="text-sm font-medium text-text-main truncate select-text">{value}</p>
       </div>
       <Button
         onPress={() => copyToClipboard(value, field)}
@@ -344,7 +344,7 @@ export default function VaultItemDetail({
         <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
           {label}
         </label>
-        <p className="text-sm font-mono text-text-main truncate">
+        <p className="text-sm font-mono text-text-main truncate select-text">
           {showPassword ? value : '••••••••••••••••'}
         </p>
       </div>
@@ -396,7 +396,7 @@ export default function VaultItemDetail({
             Note
           </label>
         )}
-        <p className="text-sm text-text-main whitespace-pre-wrap font-mono leading-relaxed break-all w-full overflow-hidden">
+        <p className="text-sm text-text-main whitespace-pre-wrap font-mono leading-relaxed break-all w-full overflow-hidden select-text">
           {value}
         </p>
       </div>
@@ -509,7 +509,7 @@ export default function VaultItemDetail({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-surface animate-in fade-in duration-200 min-w-0 overflow-x-hidden">
+    <div className="flex-1 flex flex-col h-full bg-surface animate-in fade-in duration-200 min-w-0 overflow-x-hidden select-none">
       <div
         className={`flex items-center justify-between px-6 py-3 bg-background shrink-0 z-20 transition-all duration-200 min-w-0 ${isScrolled ? 'shadow-md border-b border-border' : 'border-b border-transparent'}`}
       >
@@ -537,7 +537,7 @@ export default function VaultItemDetail({
             </Button>
             <Popover
               placement="bottom end"
-              className="w-48 bg-surface border border-border rounded-lg shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-top-2 data-exiting:animate-outata-[exiting]:fade-out data-[exiting]:slide-out-to-top-2"
+              className="w-48 bg-surface border border-border rounded-lg shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-top-2 data-exiting:animate-outata-[exiting]:fade-out data-[exiting]:slide-out-to-top-2 select-none"
             >
               <Menu className="outline-none flex flex-col">
                 <MenuItem
@@ -759,7 +759,7 @@ export default function VaultItemDetail({
         onOpenChange={setIsMoveModalOpen}
         className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
       >
-        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-sm p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none">
+        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-sm p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
           <Dialog className="outline-none">
             {({ close }) => (
               <>
@@ -835,7 +835,7 @@ export default function VaultItemDetail({
         onOpenChange={setIsDeleteModalOpen}
         className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
       >
-        <Modal className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none">
+        <Modal className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
           <Dialog className="outline-none">
             {({ close }) => (
               <>

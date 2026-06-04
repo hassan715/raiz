@@ -36,7 +36,7 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="w-full max-w-sm mx-auto animate-in fade-in duration-300">
+    <div className="w-full max-w-sm mx-auto animate-in fade-in duration-300 select-none">
       {/* Visual Anchor & Error Feedback Header Group */}
       <div className="flex flex-col items-center mb-2 relative">
         <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center ring-4 ring-background mb-1">

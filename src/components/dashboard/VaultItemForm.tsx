@@ -452,13 +452,13 @@ export default function VaultItemForm({
       <div className="relative w-full group">
         <Input
           placeholder="https://"
-          className={`w-full pl-3 pr-10 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-[invalid]:border-danger ${kbRing}`}
+          className={`w-full pl-3 pr-10 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-invalid:border-danger ${kbRing}`}
         />
         <Button className="absolute inset-y-0 right-0 flex items-center px-2 cursor-pointer text-text-muted hover:text-text-main outline-none">
-          <ChevronDown className="w-4 h-4 transition-transform group-data-[open]:rotate-180" />
+          <ChevronDown className="w-4 h-4 transition-transform group-data-open:rotate-180" />
         </Button>
       </div>
-      <Popover className="w-[var(--trigger-width)] bg-surface border border-border rounded-md shadow-lg overflow-hidden animate-in fade-in slide-in-from-top-1 z-50 placement-bottom">
+      <Popover className="w-(--trigger-width) bg-surface border border-border rounded-md shadow-lg overflow-hidden animate-in fade-in slide-in-from-top-1 z-50 placement-bottom select-none">
         <ListBox className="outline-none p-1 max-h-60 overflow-y-auto">
           {(item: ServiceTemplate) => {
             const Icon = item.icon || Globe;
@@ -466,7 +466,7 @@ export default function VaultItemForm({
               <ListBoxItem
                 id={item.name}
                 textValue={item.url}
-                className="px-2 py-1.5 cursor-pointer outline-none data-[focused]:bg-primary-muted rounded-md flex items-center transition-colors"
+                className="px-2 py-1.5 cursor-pointer outline-none data-focused:bg-primary-muted rounded-md flex items-center transition-colors"
               >
                 <Icon className="w-4 h-4 mr-3 text-text-muted shrink-0" />
                 <div className="flex flex-col overflow-hidden">
@@ -555,9 +555,9 @@ export default function VaultItemForm({
                 <span className="text-xs text-text-muted">Is 2FA enabled on this service?</span>
               </div>
               <div
-                className={`w-11 h-6 bg-border rounded-full flex items-center transition-colors group-data-[selected]:bg-primary ${kbRing}`}
+                className={`w-11 h-6 bg-border rounded-full flex items-center transition-colors group-data-selected:bg-primary ${kbRing}`}
               >
-                <div className="w-5 h-5 bg-text-main rounded-full transform transition-transform group-data-[selected]:translate-x-5 translate-x-0.5" />
+                <div className="w-5 h-5 bg-text-main rounded-full transform transition-transform group-data-selected:translate-x-5 translate-x-0.5" />
               </div>
             </Switch>
 
@@ -827,9 +827,9 @@ export default function VaultItemForm({
       isOpen={isOpen}
       onOpenChange={(op) => !op && onClose()}
       isDismissable={false}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-background/80 backdrop-blur-sm data-[entering]:animate-in data-[entering]:fade-in data-[exiting]:animate-out data-[exiting]:fade-out"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
     >
-      <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-2xl h-[700px] max-h-[90vh] flex flex-col data-[entering]:animate-in data-[entering]:zoom-in-95 data-[exiting]:animate-out data-[exiting]:zoom-out-95 outline-none">
+      <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-2xl h-175 max-h-[90vh] flex flex-col data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
         <Dialog className="flex flex-col h-full outline-none">
           {({ close }) => (
             <>
@@ -914,7 +914,7 @@ export default function VaultItemForm({
                           <Label className="text-sm font-medium text-text-muted">Item Name *</Label>
                           <Input
                             placeholder="e.g. My Personal GitHub, Work Email"
-                            className={`w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-[invalid]:border-danger ${kbRing}`}
+                            className={`w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-invalid:border-danger ${kbRing}`}
                           />
                         </TextField>
                       </div>
@@ -997,7 +997,7 @@ export default function VaultItemForm({
                         aria-label="Select Vault"
                       >
                         <Button
-                          className={`flex items-center justify-between min-w-[140px] h-10 px-3 bg-surface border border-border rounded-md text-text-main text-sm font-medium transition-colors outline-none ${kbRing}`}
+                          className={`flex items-center justify-between min-w-35 h-10 px-3 bg-surface border border-border rounded-md text-text-main text-sm font-medium transition-colors outline-none ${kbRing}`}
                         >
                           <SelectValue className="flex items-center truncate" />
                           <ChevronDown className="w-4 h-4 ml-2 text-text-muted opacity-70 shrink-0" />
@@ -1005,7 +1005,7 @@ export default function VaultItemForm({
                         <Popover
                           placement="top end"
                           offset={4}
-                          className="w-[var(--trigger-width)] bg-surface border border-border rounded-md shadow-xl z-50 data-[entering]:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-bottom-2 data-[exiting]:animate-out data-[exiting]:fade-out data-[exiting]:slide-out-to-bottom-2"
+                          className="w-(--trigger-width) bg-surface border border-border rounded-md shadow-xl z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-bottom-2 data-exiting:animate-out data-[exiting]:fade-out data-[exiting]:slide-out-to-bottom-2 select-none"
                         >
                           <ListBox className="outline-none p-1 max-h-48 overflow-y-auto">
                             {availableVaults.map((v) => (
@@ -1013,7 +1013,7 @@ export default function VaultItemForm({
                                 key={v.id}
                                 id={v.id}
                                 textValue={v.name}
-                                className="px-2 py-1.5 cursor-pointer outline-none data-[focused]:bg-primary-muted rounded-md text-sm text-text-main transition-colors flex items-center"
+                                className="px-2 py-1.5 cursor-pointer outline-none data-focused:bg-primary-muted rounded-md text-sm text-text-main transition-colors flex items-center"
                               >
                                 <Folder className="w-3.5 h-3.5 mr-2 text-text-muted shrink-0" />
                                 <span className="truncate">{v.name}</span>
@@ -1032,7 +1032,7 @@ export default function VaultItemForm({
                           ((accountType === 'Login' || accountType === 'Password') && !password) ||
                           (accountType === 'Secure Note' && !notes)
                         }
-                        className={`h-10 px-6 bg-primary text-white text-sm font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center justify-center min-w-[80px] outline-none ${kbRing}`}
+                        className={`h-10 px-6 bg-primary text-white text-sm font-medium rounded-md hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm flex items-center justify-center min-w-20 outline-none ${kbRing}`}
                       >
                         {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
                       </Button>

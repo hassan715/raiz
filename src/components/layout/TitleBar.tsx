@@ -120,24 +120,26 @@ export default function TitleBar({
         <div
           data-tauri-drag-region
           onDoubleClick={handleToggleMaximize}
-          className="flex-1 h-full min-w-[32px]"
+          className="flex-1 h-full min-w-8"
         />
 
         {/* Native OS Frame Operations Wrapper */}
         <div className="flex h-full shrink-0" onMouseDown={(e) => e.stopPropagation()}>
           <button
+            tabIndex={-1}
             onClick={() => appWindow.minimize()}
             onDoubleClick={(e) => e.stopPropagation()}
-            className="h-full w-[46px] flex items-center justify-center hover:bg-gray-200 text-text-muted transition-colors"
+            className="h-full w-11.5 flex items-center justify-center hover:bg-gray-200 text-text-muted transition-colors"
             title="Minimize"
           >
             <Minus className="w-4 h-4 pointer-events-none" />
           </button>
 
           <button
+            tabIndex={-1}
             onClick={handleToggleMaximize}
             onDoubleClick={(e) => e.stopPropagation()}
-            className="h-full w-[46px] flex items-center justify-center hover:bg-gray-200 text-text-muted transition-colors"
+            className="h-full w-11.5 flex items-center justify-center hover:bg-gray-200 text-text-muted transition-colors"
             title={isMaximized ? 'Restore' : 'Maximize'}
           >
             {isMaximized ? (
@@ -148,9 +150,10 @@ export default function TitleBar({
           </button>
 
           <button
+            tabIndex={-1}
             onClick={() => appWindow.close()}
             onDoubleClick={(e) => e.stopPropagation()}
-            className="h-full w-[46px] flex items-center justify-center hover:bg-danger text-text-muted hover:text-white transition-colors"
+            className="h-full w-11.5 flex items-center justify-center hover:bg-danger text-text-muted hover:text-white transition-colors"
             title="Close"
           >
             <X className="w-4 h-4 pointer-events-none" />
