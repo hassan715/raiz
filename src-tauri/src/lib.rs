@@ -240,7 +240,7 @@ fn get_active_tags(state: tauri::State<'_, AppState>) -> Result<Vec<String>, Str
 
         let mut tags_vec: Vec<String> = active_tags.into_iter().collect();
         // Sort tags alphabetically for the UI
-        tags_vec.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        tags_vec.sort_by_key(|a| a.to_lowercase());
         Ok(tags_vec)
     } else {
         Err("Vault is locked.".to_string())
@@ -481,12 +481,13 @@ pub fn run() {
                     }
                     _ => {}
                 })
-                .on_tray_icon_event(|tray, event| match event {
-                    TrayIconEvent::Click {
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
-                    } => {
+                    } = event
+                    {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             let is_visible = window.is_visible().unwrap_or(false);
@@ -498,7 +499,6 @@ pub fn run() {
                             }
                         }
                     }
-                    _ => {}
                 })
                 .build(app)?;
 
