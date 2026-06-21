@@ -15,6 +15,7 @@ import {
   ArrowUpDown,
   Check,
   ChevronDown,
+  Tag,
 } from 'lucide-react';
 import { MenuTrigger, Button, Popover, Menu, MenuItem, Separator } from 'react-aria-components';
 import { Account } from '../../types';
@@ -28,6 +29,7 @@ interface VaultDashboardProps {
   searchQuery: string;
   isCreatingTrigger: boolean;
   resetCreatingTrigger: () => void;
+  selectedTag: string | null;
 }
 
 export default function VaultDashboard({
@@ -36,6 +38,7 @@ export default function VaultDashboard({
   searchQuery,
   isCreatingTrigger,
   resetCreatingTrigger,
+  selectedTag,
 }: VaultDashboardProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
@@ -51,16 +54,19 @@ export default function VaultDashboard({
   );
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
-  // Reset the type filter exclusively when the vault or main view changes
+  // Reset the type filter exclusively when the vault, tag, or main view changes
   useEffect(() => {
     setTypeFilter('All');
-  }, [selectedVaultId, activeView]);
+  }, [selectedVaultId, activeView, selectedTag]);
 
   const loadAccounts = useCallback(async (showSpinner = true) => {
     if (showSpinner) setIsLoading(true);
     try {
       const data = await invoke<Account[]>('get_accounts');
       setAccounts(data);
+
+      // Notify the Sidebar to recalculate active tags based on new data
+      window.dispatchEvent(new Event('refresh-tags'));
 
       setSelectedAccount((current) => {
         if (!current) return null;
@@ -114,6 +120,9 @@ export default function VaultDashboard({
     } else {
       if (isArchived) return false;
       if (selectedVaultId && acc.vault_id !== selectedVaultId) return false;
+
+      // Tag filter
+      if (selectedTag && !acc.tags.includes(selectedTag)) return false;
     }
 
     const searchLower = searchQuery.toLowerCase();
@@ -331,6 +340,8 @@ export default function VaultDashboard({
                 <Archive className="w-6 h-6 mb-2 opacity-30" />
               ) : activeView === 'favorites' ? (
                 <Star className="w-6 h-6 mb-2 opacity-30 text-warning" />
+              ) : selectedTag ? (
+                <Tag className="w-6 h-6 mb-2 opacity-30" />
               ) : (
                 <Key className="w-6 h-6 mb-2 opacity-30" />
               )}

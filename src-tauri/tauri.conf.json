@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "raiz",
+  "productName": "Raiz",
   "version": "0.1.0",
   "identifier": "com.hassan.raiz",
   "build": {
@@ -12,10 +12,11 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "fullscreen": false,
         "height": 600,
         "resizable": true,
-        "title": "raiz",
+        "title": "Raiz",
         "width": 800,
         "minWidth": 784,
         "minHeight": 420,

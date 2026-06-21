@@ -4,28 +4,32 @@ mod storage;
 
 use crypto::{generate_password, generate_recovery_phrase};
 use models::{Account, Vault};
+use std::collections::{HashMap, HashSet}; // <-- Added HashSet
 use std::fs;
 use std::sync::Mutex;
 use storage::{load_vault, recover_vault, save_vault, update_vault};
 use uuid::Uuid;
 
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::Manager;
+use tauri_plugin_autostart::MacosLauncher;
+
 // --- ACTIVE MEMORY STATE ---
 struct AppState {
     vault: Mutex<Option<Vault>>,
-    dek: Mutex<Option<[u8; 32]>>, // We now cache the DEK securely in RAM
+    dek: Mutex<Option<[u8; 32]>>,
     file_path: String,
 }
 
 // --- TAURI COMMANDS (THE API) ---
 
-/// Checks if a vault file already exists on this computer.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn check_vault_exists(state: tauri::State<'_, AppState>) -> bool {
     std::path::Path::new(&state.file_path).exists()
 }
 
-/// Creates a brand new vault and returns the 24-word recovery phrase to React.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn create_vault(
@@ -40,17 +44,15 @@ fn create_vault(
     let phrase = generate_recovery_phrase();
     let mut empty_vault = Vault::new();
 
-    // Set the user's chosen profile name, fallback to default if they sent an empty string
     let clean_name = profile_name.trim();
     if !clean_name.is_empty() {
         empty_vault.profile_name = clean_name.to_string();
     }
 
     save_vault(&empty_vault, password, &phrase, &state.file_path)?;
-    Ok(phrase) // Send the words to the UI so the user can write them down
+    Ok(phrase)
 }
 
-/// Unlocks an existing vault and stores the Data and DEK in RAM.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
@@ -64,21 +66,18 @@ fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<Str
     }
 }
 
-/// Securely wipes active memory.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn lock_vault(state: tauri::State<'_, AppState>) {
     *state.vault.lock().unwrap() = None;
 
-    // Cryptographically zero out the DEK
     let mut dek_guard = state.dek.lock().unwrap();
     if let Some(mut dek) = *dek_guard {
-        dek.fill(0); // Overwrite RAM with zeros before dropping
+        dek.fill(0);
     }
     *dek_guard = None;
 }
 
-/// Sends the list of accounts to the React UI.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, String> {
@@ -89,7 +88,6 @@ fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, Strin
     }
 }
 
-/// Receives a new or updated Account from React and saves it securely to disk.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn save_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -97,14 +95,11 @@ fn save_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(
     let dek_guard = state.dek.lock().unwrap();
 
     if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
-        // Check if updating or adding
         if let Some(pos) = vault.accounts.iter().position(|a| a.id == account.id) {
-            vault.accounts[pos] = account; // Update
+            vault.accounts[pos] = account;
         } else {
-            vault.accounts.push(account); // Add new
+            vault.accounts.push(account);
         }
-
-        // Commit changes to disk instantly
         update_vault(vault, dek, &state.file_path)?;
         Ok(())
     } else {
@@ -112,7 +107,6 @@ fn save_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(
     }
 }
 
-/// Unlocks the vault using the 24-word recovery phrase instead of the master password.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn unlock_with_recovery(phrase: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
@@ -120,14 +114,12 @@ fn unlock_with_recovery(phrase: &str, state: tauri::State<'_, AppState>) -> Resu
         Ok((decrypted_vault, decrypted_dek)) => {
             *state.vault.lock().unwrap() = Some(decrypted_vault);
             *state.dek.lock().unwrap() = Some(decrypted_dek);
-            // In the UI, we will prompt the user to immediately change their master password after this.
             Ok("Vault recovered successfully.".to_string())
         }
         Err(_) => Err("Invalid recovery phrase.".to_string()),
     }
 }
 
-/// Deletes a specific account from the vault and instantly updates the disk.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn delete_account(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -143,7 +135,6 @@ fn delete_account(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result
     }
 }
 
-/// Changes the Master Password and generates a NEW 24-word recovery phrase.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn change_master_password(
@@ -166,14 +157,12 @@ fn change_master_password(
     }
 }
 
-/// Generates a secure password for the UI to display and use.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn generate_secure_password(length: usize, include_symbols: bool) -> String {
     generate_password(length, include_symbols)
 }
 
-/// Securely copies the encrypted vault file to the path chosen by the user.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn export_vault(destination_path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -188,7 +177,6 @@ fn export_vault(destination_path: String, state: tauri::State<'_, AppState>) -> 
     Ok(())
 }
 
-/// Permanently deletes the vault from the hard drive and wipes RAM.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn delete_entire_vault(state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -208,7 +196,6 @@ fn delete_entire_vault(state: tauri::State<'_, AppState>) -> Result<(), String> 
     Ok(())
 }
 
-/// Resets the Master Password after a successful recovery.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn reset_master_password(
@@ -233,6 +220,30 @@ fn get_global_tags(state: tauri::State<'_, AppState>) -> Result<Vec<String>, Str
     match &*vault_guard {
         Some(vault) => Ok(vault.tags.clone()),
         None => Err("Vault is currently locked.".to_string()),
+    }
+}
+
+// --- NEW COMMAND: Calculate Active Tags Only ---
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn get_active_tags(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    let vault_guard = state.vault.lock().unwrap();
+
+    if let Some(vault) = vault_guard.as_ref() {
+        let mut active_tags: HashSet<String> = HashSet::new();
+
+        for account in &vault.accounts {
+            for tag in &account.tags {
+                active_tags.insert(tag.clone());
+            }
+        }
+
+        let mut tags_vec: Vec<String> = active_tags.into_iter().collect();
+        // Sort tags alphabetically for the UI
+        tags_vec.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+        Ok(tags_vec)
+    } else {
+        Err("Vault is locked.".to_string())
     }
 }
 
@@ -394,6 +405,39 @@ fn move_account_to_vault(
     }
 }
 
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn get_most_common_username(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let vault_guard = state.vault.lock().unwrap();
+
+    if let Some(vault) = vault_guard.as_ref() {
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        let mut max_count = 0;
+        let mut most_common = String::new();
+
+        for account in &vault.accounts {
+            if let models::AccountDetails::Login {
+                username: Some(ref uname),
+                ..
+            } = account.details
+            {
+                let clean_uname = uname.trim();
+                if !clean_uname.is_empty() {
+                    let count = counts.entry(clean_uname).or_insert(0);
+                    *count += 1;
+                    if *count > max_count {
+                        max_count = *count;
+                        most_common = clean_uname.to_string();
+                    }
+                }
+            }
+        }
+        Ok(most_common)
+    } else {
+        Err("Vault is locked.".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let state = AppState {
@@ -403,8 +447,63 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .setup(|app| {
+            let toggle_i = MenuItem::with_id(app, "toggle", "Show/Hide Raiz", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Quit Raiz", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&toggle_i, &quit_i])?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    "toggle" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let is_visible = window.is_visible().unwrap_or(false);
+                            if is_visible {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| match event {
+                    TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } => {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let is_visible = window.is_visible().unwrap_or(false);
+                            if is_visible {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                    _ => {}
+                })
+                .build(app)?;
+
+            Ok(())
+        })
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             check_vault_exists,
@@ -421,6 +520,7 @@ pub fn run() {
             delete_entire_vault,
             reset_master_password,
             get_global_tags,
+            get_active_tags, // <-- Added Active Tags
             add_global_tag,
             delete_global_tag,
             get_vaults,
@@ -429,7 +529,8 @@ pub fn run() {
             delete_inner_vault,
             get_profile_name,
             update_profile_name,
-            move_account_to_vault
+            move_account_to_vault,
+            get_most_common_username
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

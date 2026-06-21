@@ -29,6 +29,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { Account, InnerVault, LoginAccount } from '../../types';
 import BrandIcon from './BrandIcon';
 import {
@@ -72,6 +73,7 @@ export default function VaultItemDetail({
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
+  // --- KEYBOARD NAVIGATION ---
   const [kbNav, setKbNav] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -87,11 +89,46 @@ export default function VaultItemDetail({
   }, []);
   const kbRing = kbNav ? 'focus:ring-2 focus:ring-primary/60 outline-none' : 'outline-none';
 
+  // --- CONCEALED FIELDS LOGIC (CTRL+ALT SHORTCUT) ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const holdToReveal = localStorage.getItem('raiz_concealed_ctrlalt') === 'true';
+      // Mac uses Meta (Cmd) + Alt (Option), Windows/Linux uses Ctrl + Alt
+      if (holdToReveal && (e.ctrlKey || e.metaKey) && e.altKey) {
+        setShowPassword(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const holdToReveal = localStorage.getItem('raiz_concealed_ctrlalt') === 'true';
+      const alwaysShow = localStorage.getItem('raiz_concealed_always') === 'true';
+
+      // If they release the keys, hide the password (unless "always show" is on)
+      if (holdToReveal && !((e.ctrlKey || e.metaKey) && e.altKey)) {
+        if (!alwaysShow) {
+          setShowPassword(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
   const accountId = account?.id;
   const targetVaultId = account?.vault_id;
 
+  // Reset states when the selected account changes
   useEffect(() => {
-    setShowPassword(false);
+    // Read the "Always Show" setting
+    const alwaysShow = localStorage.getItem('raiz_concealed_always') === 'true';
+    setShowPassword(alwaysShow);
+
     setShowMetadata(false);
     setIsMoveModalOpen(false);
     setIsDeleteModalOpen(false);
@@ -172,9 +209,17 @@ export default function VaultItemDetail({
     });
   }
 
+  // --- SECURE CLIPBOARD COPY ---
   const copyToClipboard = async (text: string, fieldName: string) => {
     if (!text) return;
-    await navigator.clipboard.writeText(text);
+    try {
+      await writeText(text);
+      window.dispatchEvent(new Event('app-clipboard-copied'));
+    } catch (err) {
+      console.warn('Tauri clipboard unavailable, using web fallback.', err);
+      await navigator.clipboard.writeText(text);
+    }
+
     setCopiedField(fieldName);
     setTimeout(() => setCopiedField(null), 2000);
   };
