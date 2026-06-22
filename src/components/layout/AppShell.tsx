@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow, getAllWindows } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { save } from '@tauri-apps/plugin-dialog';
 import {
   Key,
   Settings,
@@ -14,6 +15,7 @@ import {
   Star,
   ChevronRight,
   Tag,
+  Download,
 } from 'lucide-react';
 import { InnerVault, Account } from '../../types';
 import { useVault } from '../../context/VaultContext';
@@ -296,6 +298,30 @@ export default function AppShell({
   const kbRing = kbNav ? 'focus:ring-2 focus:ring-primary/60' : '';
   const kbRingInset = kbNav ? 'focus:ring-2 focus:ring-primary/60 focus:ring-inset' : '';
 
+  // --- EXPORT VAULT ---
+  const handleExportVault = async () => {
+    try {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const timestamp = `${year}${month}${day}_${hours}${minutes}`;
+
+      const filePath = await save({
+        filters: [{ name: 'Raiz Encrypted Vault', extensions: ['enc'] }],
+        defaultPath: `raiz_backup_${timestamp}.enc`,
+      });
+
+      if (filePath) {
+        await invoke('export_vault', { destinationPath: filePath });
+      }
+    } catch (error) {
+      console.error('Failed to export vault:', error);
+    }
+  };
+
   // --- SMART WINDOW CREATION ---
   const handleOpenSettings = async () => {
     try {
@@ -364,6 +390,13 @@ export default function AppShell({
             className="w-52 bg-surface border border-border rounded-b-lg rounded-tr-lg shadow-xl p-1.5 z-50 data-[entering]:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-top-2 select-none"
           >
             <Menu className="outline-none">
+              <MenuItem
+                onAction={handleExportVault}
+                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main transition-colors cursor-pointer outline-none data-[focused]:bg-gray-200"
+              >
+                <Download className="w-4 h-4 mr-3 text-text-muted" aria-hidden="true" /> Export
+              </MenuItem>
+              <Separator className="h-px bg-border my-1.5 mx-2" />
               <MenuItem
                 onAction={handleOpenSettings}
                 className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main transition-colors cursor-pointer outline-none data-[focused]:bg-gray-200"
