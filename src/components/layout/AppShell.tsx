@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow, getAllWindows } from '@tauri-apps/api/window';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import {
   Key,
   Settings,
@@ -11,6 +13,7 @@ import {
   Archive,
   Star,
   ChevronRight,
+  Tag,
 } from 'lucide-react';
 import { InnerVault, Account } from '../../types';
 import { useVault } from '../../context/VaultContext';
@@ -36,10 +39,12 @@ import {
 
 interface AppShellProps {
   children: React.ReactNode;
-  activeView: 'vaults' | 'settings' | 'archived' | 'favorites';
-  setActiveView: (view: 'vaults' | 'settings' | 'archived' | 'favorites') => void;
+  activeView: 'vaults' | 'archived' | 'favorites';
+  setActiveView: (view: 'vaults' | 'archived' | 'favorites') => void;
   selectedVaultId: string | null;
   setSelectedVaultId: (id: string | null) => void;
+  selectedTag: string | null;
+  setSelectedTag: (tag: string | null) => void;
 }
 
 export default function AppShell({
@@ -48,33 +53,37 @@ export default function AppShell({
   setActiveView,
   selectedVaultId,
   setSelectedVaultId,
+  selectedTag,
+  setSelectedTag,
 }: AppShellProps) {
   const { lockVault } = useVault();
   const [vaults, setVaults] = useState<InnerVault[]>([]);
   const [profileName, setProfileName] = useState('My Vault');
 
-  // Create Vault State
+  // --- SETTINGS SYNC STATE ---
+  const [showTags, setShowTags] = useState(
+    () => localStorage.getItem('raiz_show_tags') !== 'false'
+  );
+  const [globalTags, setGlobalTags] = useState<string[]>([]);
+
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newVaultName, setNewVaultName] = useState('');
   const [newVaultDescription, setNewVaultDescription] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState('');
 
-  // Edit Vault State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [vaultToEdit, setVaultToEdit] = useState<InnerVault | null>(null);
   const [editVaultName, setEditVaultName] = useState('');
   const [editVaultDescription, setEditVaultDescription] = useState('');
   const [editError, setEditError] = useState('');
 
-  // Delete Vault State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [vaultToDelete, setVaultToDelete] = useState<InnerVault | null>(null);
   const [vaultToDeleteItemCount, setVaultToDeleteItemCount] = useState(0);
   const [confirmDeleteName, setConfirmDeleteName] = useState('');
   const [deleteError, setDeleteError] = useState('');
 
-  // Context Menu State
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -86,6 +95,31 @@ export default function AppShell({
     fetchVaults();
     invoke<string>('get_profile_name').then(setProfileName).catch(console.error);
   }, [activeView, selectedVaultId]);
+
+  // --- CROSS-WINDOW TAG SYNC ---
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'raiz_show_tags') {
+        setShowTags(e.newValue !== 'false');
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  // --- FETCH ACTIVE TAGS IF ENABLED ---
+  useEffect(() => {
+    const fetchActiveTags = () => {
+      if (showTags) {
+        invoke<string[]>('get_active_tags').then(setGlobalTags).catch(console.error);
+      }
+    };
+
+    fetchActiveTags();
+
+    window.addEventListener('refresh-tags', fetchActiveTags);
+    return () => window.removeEventListener('refresh-tags', fetchActiveTags);
+  }, [showTags, activeView, selectedVaultId]);
 
   const fetchVaults = () => {
     invoke<InnerVault[]>('get_vaults').then(setVaults).catch(console.error);
@@ -137,8 +171,6 @@ export default function AppShell({
     }
   };
 
-  // Approximate rendered size of the context menu (header + 2 items + padding).
-  // Calculated before render so the menu never jumps after appearing.
   const MENU_WIDTH = 160;
   const MENU_HEIGHT = 118;
 
@@ -244,7 +276,6 @@ export default function AppShell({
     }
   };
 
-  // Keyboard navigation focus ring management
   const [kbNav, setKbNav] = useState(false);
 
   useEffect(() => {
@@ -265,14 +296,47 @@ export default function AppShell({
   const kbRing = kbNav ? 'focus:ring-2 focus:ring-primary/60' : '';
   const kbRingInset = kbNav ? 'focus:ring-2 focus:ring-primary/60 focus:ring-inset' : '';
 
+  // --- SMART WINDOW CREATION ---
+  const handleOpenSettings = async () => {
+    try {
+      const windows = await getAllWindows();
+      const existingWin = windows.find((w) => w.label === 'settings');
+
+      if (existingWin) {
+        await existingWin.show();
+        await existingWin.setFocus();
+      } else {
+        const newWin = new WebviewWindow('settings', {
+          url: 'index.html',
+          title: 'Settings',
+          width: 764,
+          height: 640,
+          resizable: false,
+          maximizable: false,
+          minimizable: false,
+          decorations: true,
+          center: true,
+          parent: getCurrentWindow(),
+        });
+
+        newWin.once('tauri://error', (e) => {
+          console.error('Failed to create settings window', e);
+        });
+
+        await newWin.show();
+        await newWin.setFocus();
+      }
+    } catch (error) {
+      console.error('Error opening settings window:', error);
+    }
+  };
+
   return (
     <div className="flex h-full w-full overflow-hidden relative select-none">
-      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <aside
         aria-label="Application sidebar"
         className="w-52 bg-sidebar border-r border-border flex flex-col z-10 relative shrink-0"
       >
-        {/* RAC Profile Menu */}
         <MenuTrigger
           onOpenChange={(open) => {
             if (!open) blurRestoredFocus();
@@ -290,31 +354,26 @@ export default function AppShell({
               </span>
             </div>
             <ChevronDown
-              className="w-4 h-4 text-text-muted transition-transform shrink-0 ml-2 group-data-pressed:rotate-180"
+              className="w-4 h-4 text-text-muted transition-transform shrink-0 ml-2 group-data-[pressed]:rotate-180"
               aria-hidden="true"
             />
           </Button>
-          {/*
-           */}
           <Popover
             placement="bottom start"
             offset={-6}
-            className="w-52 bg-surface border border-border rounded-b-lg rounded-tr-lg shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-top-2 select-none"
+            className="w-52 bg-surface border border-border rounded-b-lg rounded-tr-lg shadow-xl p-1.5 z-50 data-[entering]:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-top-2 select-none"
           >
             <Menu className="outline-none">
               <MenuItem
-                onAction={() => {
-                  clearSelection();
-                  setActiveView('settings');
-                }}
-                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main transition-colors cursor-pointer outline-none data-focused:bg-gray-200"
+                onAction={handleOpenSettings}
+                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main transition-colors cursor-pointer outline-none data-[focused]:bg-gray-200"
               >
                 <Settings className="w-4 h-4 mr-3 text-text-muted" aria-hidden="true" /> Settings
               </MenuItem>
               <Separator className="h-px bg-border my-1.5 mx-2" />
               <MenuItem
                 onAction={lockVault}
-                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main transition-colors cursor-pointer outline-none data-focused:bg-gray-200"
+                className="w-full flex items-center px-3 py-2 rounded-md text-sm text-text-main transition-colors cursor-pointer outline-none data-[focused]:bg-gray-200"
               >
                 <LogOut className="w-4 h-4 mr-3 text-text-muted" aria-hidden="true" /> Lock Raiz
               </MenuItem>
@@ -322,7 +381,6 @@ export default function AppShell({
           </Popover>
         </MenuTrigger>
 
-        {/* Core Navigation List */}
         <nav
           aria-label="Main Navigation"
           className="flex flex-col flex-1 py-4 px-3 space-y-1 overflow-y-auto"
@@ -332,12 +390,17 @@ export default function AppShell({
               clearSelection();
               setActiveView('vaults');
               setSelectedVaultId(null);
+              setSelectedTag(null); // Clear tag
             }}
-            aria-current={activeView === 'vaults' && selectedVaultId === null ? 'page' : undefined}
+            aria-current={
+              activeView === 'vaults' && selectedVaultId === null && selectedTag === null
+                ? 'page'
+                : undefined
+            }
             className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md outline-none ${kbRing} transition-colors ${
-              activeView === 'vaults' && selectedVaultId === null
+              activeView === 'vaults' && selectedVaultId === null && selectedTag === null
                 ? 'bg-primary-muted text-primary'
-                : 'text-text-muted hover:bg-surface hover:text-text-main data-pressed:bg-surface data-hovered:bg-surface'
+                : 'text-text-muted hover:bg-surface hover:text-text-main data-[pressed]:bg-surface data-[hovered]:bg-surface'
             }`}
           >
             <Key className="w-4 h-4 mr-3" aria-hidden="true" /> All Vaults
@@ -348,18 +411,19 @@ export default function AppShell({
               clearSelection();
               setActiveView('favorites');
               setSelectedVaultId(null);
+              setSelectedTag(null); // Clear tag
             }}
             aria-current={activeView === 'favorites' ? 'page' : undefined}
             className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md outline-none ${kbRing} transition-colors ${
               activeView === 'favorites'
                 ? 'bg-primary-muted text-primary'
-                : 'text-text-muted hover:bg-surface hover:text-text-main data-pressed:bg-surface data-hovered:bg-surface'
+                : 'text-text-muted hover:bg-surface hover:text-text-main data-[pressed]:bg-surface data-[hovered]:bg-surface'
             }`}
           >
             <Star className="w-4 h-4 mr-3" aria-hidden="true" /> Favorites
           </Button>
 
-          {/* ── My Vaults Disclosure Group ── */}
+          {/* VAULTS SECTION */}
           <Disclosure className="pt-4 group">
             <div className="flex items-center justify-between w-full hover:bg-surface group">
               <Button
@@ -367,7 +431,7 @@ export default function AppShell({
                 className={`flex-1 flex items-center py-2 px-3 text-sm font-medium text-text-muted tracking-wider hover:text-text-main transition-colors outline-none rounded-md ${kbRing}`}
               >
                 <ChevronRight
-                  className="w-4 h-4 mr-3 transition-transform group-data-expanded:rotate-90"
+                  className="w-4 h-4 mr-3 transition-transform group-data-[expanded]:rotate-90"
                   aria-hidden="true"
                 />
                 My Vaults
@@ -389,6 +453,7 @@ export default function AppShell({
                     clearSelection();
                     setActiveView('vaults');
                     setSelectedVaultId(vault.id);
+                    setSelectedTag(null); // Clear tag
                   }}
                   onContextMenu={(e) => handleContextMenu(e, vault)}
                   onKeyDown={(e) => handleVaultKeyDown(e, vault)}
@@ -408,18 +473,67 @@ export default function AppShell({
             </DisclosurePanel>
           </Disclosure>
 
+          {/* DYNAMIC TAGS SECTION */}
+          {showTags && (
+            <Disclosure className="pt-2 group">
+              <div className="flex items-center justify-between w-full hover:bg-surface group">
+                <Button
+                  slot="trigger"
+                  className={`flex-1 flex items-center py-2 px-3 text-sm font-medium text-text-muted tracking-wider hover:text-text-main transition-colors outline-none rounded-md ${kbRing}`}
+                >
+                  <ChevronRight
+                    className="w-4 h-4 mr-3 transition-transform group-data-[expanded]:rotate-90"
+                    aria-hidden="true"
+                  />
+                  Tags
+                </Button>
+              </div>
+
+              <DisclosurePanel className="space-y-1 mt-1">
+                {globalTags.length === 0 ? (
+                  <div className="px-9 py-2 text-xs text-text-muted italic">No tags yet</div>
+                ) : (
+                  globalTags.map((tag) => {
+                    const isSelected = selectedTag === tag;
+                    return (
+                      <button
+                        key={tag}
+                        onClick={() => {
+                          clearSelection();
+                          setActiveView('vaults');
+                          setSelectedVaultId(null);
+                          setSelectedTag(tag); // Set active tag!
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+                          isSelected
+                            ? 'bg-primary-muted text-primary'
+                            : 'text-text-muted hover:bg-surface hover:text-text-main'
+                        }`}
+                      >
+                        <Tag className="w-4 h-4 mr-3 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{tag}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </DisclosurePanel>
+            </Disclosure>
+          )}
+
+          {/* BOTTOM ARCHIVE BUTTON */}
           <div className="pt-3 pb-2 mt-auto">
             <Button
               onPress={() => {
                 clearSelection();
                 setActiveView('archived');
                 setSelectedVaultId(null);
+                setSelectedTag(null); // Clear tag
               }}
               aria-current={activeView === 'archived' ? 'page' : undefined}
               className={`w-full flex items-center px-3 py-2 text-sm font-medium rounded-md outline-none ${kbRing} transition-colors ${
                 activeView === 'archived'
                   ? 'bg-primary-muted text-primary'
-                  : 'text-text-muted hover:bg-surface hover:text-text-main data-pressed:bg-surface data-hovered:bg-surface'
+                  : 'text-text-muted hover:bg-surface hover:text-text-main data-[pressed]:bg-surface data-[hovered]:bg-surface'
               }`}
             >
               <Archive className="w-4 h-4 mr-3" aria-hidden="true" /> Archived
@@ -430,7 +544,7 @@ export default function AppShell({
 
       <main className="flex-1 flex flex-col relative overflow-hidden">{children}</main>
 
-      {/* ── Context menu ── */}
+      {/* CONTEXT MENU */}
       {contextMenu && (
         <div
           ref={contextMenuRef}
@@ -442,7 +556,7 @@ export default function AppShell({
             if (e.key === 'ArrowUp')
               (e.currentTarget.firstElementChild?.nextElementSibling as HTMLElement)?.focus();
           }}
-          className="fixed z-60 w-40 bg-surface border border-border rounded-lg shadow-xl p-1 animate-in fade-in slide-in-from-top-1 select-none"
+          className="fixed z-[60] w-40 bg-surface border border-border rounded-lg shadow-xl p-1 animate-in fade-in slide-in-from-top-1 select-none"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
           <div className="px-2 py-1 mb-1 border-b border-border" role="presentation">
@@ -467,7 +581,7 @@ export default function AppShell({
         </div>
       )}
 
-      {/* ── Create Vault Modal ── */}
+      {/* CREATE VAULT MODAL */}
       <ModalOverlay
         isOpen={isCreateModalOpen}
         onOpenChange={(open) => {
@@ -475,9 +589,9 @@ export default function AppShell({
           if (!open) blurRestoredFocus();
         }}
         isDismissable
-        className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm data-[entering]:animate-in data-[entering]:fade-in data-[exiting]:animate-out data-[exiting]:fade-out"
       >
-        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
+        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 data-[entering]:animate-in data-[entering]:zoom-in-95 data-[exiting]:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
           <Dialog className="outline-none" aria-label="Create New Vault">
             {({ close }) => (
               <>
@@ -505,7 +619,7 @@ export default function AppShell({
                   >
                     <Label className="text-sm font-medium text-text-muted">Vault Name *</Label>
                     <Input
-                      className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-invalid:border-danger"
+                      className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-[invalid]:border-danger"
                       placeholder="e.g., Work, Finance, Travel"
                     />
                   </TextField>
@@ -553,7 +667,7 @@ export default function AppShell({
         </Modal>
       </ModalOverlay>
 
-      {/* ── Edit Vault Modal ── */}
+      {/* EDIT VAULT MODAL */}
       <ModalOverlay
         isOpen={isEditModalOpen}
         onOpenChange={(open) => {
@@ -561,9 +675,9 @@ export default function AppShell({
           if (!open) blurRestoredFocus();
         }}
         isDismissable
-        className="fixed inset-0 z-70 flex items-center justify-center bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
+        className="fixed inset-0 z-[70] flex items-center justify-center bg-background/80 backdrop-blur-sm data-[entering]:animate-in data-[entering]:fade-in data-[exiting]:animate-out data-[exiting]:fade-out"
       >
-        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
+        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-md p-6 data-[entering]:animate-in data-[entering]:zoom-in-95 data-[exiting]:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
           <Dialog className="outline-none" aria-label="Edit Vault">
             {({ close }) => (
               <>
@@ -588,7 +702,7 @@ export default function AppShell({
                     className="w-full flex flex-col gap-1"
                   >
                     <Label className="text-sm font-medium text-text-muted">Vault Name *</Label>
-                    <Input className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-invalid:border-danger" />
+                    <Input className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-primary transition-colors data-[invalid]:border-danger" />
                   </TextField>
                   <TextField
                     value={editVaultDescription}
@@ -633,7 +747,7 @@ export default function AppShell({
         </Modal>
       </ModalOverlay>
 
-      {/* ── Delete Vault Modal ── */}
+      {/* DELETE VAULT MODAL */}
       <ModalOverlay
         isOpen={isDeleteModalOpen}
         onOpenChange={(open) => {
@@ -641,9 +755,9 @@ export default function AppShell({
           if (!open) blurRestoredFocus();
         }}
         isDismissable
-        className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
+        className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-[entering]:animate-in data-[entering]:fade-in data-[exiting]:animate-out data-[exiting]:fade-out"
       >
-        <Modal className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
+        <Modal className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 data-[entering]:animate-in data-[entering]:zoom-in-95 data-[exiting]:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
           <Dialog className="outline-none" aria-label="Delete Vault">
             {({ close }) => (
               <>
@@ -662,7 +776,7 @@ export default function AppShell({
                     Please type <strong>{vaultToDelete?.name}</strong> to confirm.
                   </Label>
                   <Input
-                    className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-danger transition-colors data-invalid:border-danger"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-md text-text-main outline-none focus-visible:border-danger transition-colors data-[invalid]:border-danger"
                     placeholder={vaultToDelete?.name}
                   />
                   {deleteError && (

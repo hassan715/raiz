@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   X,
@@ -17,6 +17,7 @@ import {
   Wallet,
   ChevronDown,
   Folder,
+  Plus,
 } from 'lucide-react';
 import { Account, InnerVault, BaseAccount } from '../../types';
 import { popularServices, ServiceTemplate } from '../../data/serviceDictionary';
@@ -88,7 +89,12 @@ export default function VaultItemForm({
   // Core Identification
   const [name, setName] = useState('');
   const [accountType, setAccountType] = useState('Login');
-  const [tagsInput, setTagsInput] = useState('');
+  const accountTypeRef = useRef('Login'); // Tracks current type synchronously to prevent race conditions during prefill
+
+  // Contextual Tags State
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [tagInputValue, setTagInputValue] = useState('');
+
   const [vaultId, setVaultId] = useState('00000000-0000-0000-0000-000000000000');
   const [availableVaults, setAvailableVaults] = useState<InnerVault[]>([]);
 
@@ -153,8 +159,10 @@ export default function VaultItemForm({
       setStep(2);
       setName(initialData.account_name);
       setAccountType(initialData.account_type);
+      accountTypeRef.current = initialData.account_type;
       setVaultId(initialData.vault_id || '00000000-0000-0000-0000-000000000000');
-      setTagsInput(initialData.tags.join(', '));
+      setSelectedTags(initialData.tags || []);
+      setTagInputValue('');
 
       const rawNotes = initialData.notes
         ? new TextDecoder().decode(new Uint8Array(initialData.notes))
@@ -238,8 +246,20 @@ export default function VaultItemForm({
       setStep(1);
       setName('');
       setAccountType('Login');
-      setTagsInput('');
-      setVaultId(defaultVaultId || '00000000-0000-0000-0000-000000000000');
+      accountTypeRef.current = 'Login';
+      setSelectedTags([]);
+      setTagInputValue('');
+
+      // --- DEFAULT VAULT PREFERENCE LOGIC ---
+      const savedDefaultVault = localStorage.getItem('raiz_default_vault');
+      if (savedDefaultVault && savedDefaultVault !== 'suggest') {
+        // Force the specific vault chosen in Settings
+        setVaultId(savedDefaultVault);
+      } else {
+        // Fallback to "Suggest a Vault" (the currently active view in the Dashboard)
+        setVaultId(defaultVaultId || '00000000-0000-0000-0000-000000000000');
+      }
+
       setUsername('');
       setEmail('');
       setUrl('');
@@ -256,6 +276,17 @@ export default function VaultItemForm({
       setHas2FA(false);
       setRecoveryCodesInput('');
       setError('');
+
+      // --- ASYNC USERNAME PREFILL LOGIC ---
+      if (localStorage.getItem('raiz_prefill') !== 'false') {
+        invoke<string>('get_most_common_username')
+          .then((mostCommon) => {
+            if (mostCommon && accountTypeRef.current === 'Login') {
+              setUsername(mostCommon);
+            }
+          })
+          .catch(console.error);
+      }
     }
   }, [initialData, isOpen, defaultVaultId]);
 
@@ -272,18 +303,6 @@ export default function VaultItemForm({
       setError('Failed to generate password');
     } finally {
       setIsGenerating(false);
-    }
-  };
-
-  const toggleTag = (tagToToggle: string) => {
-    const currentTags = tagsInput
-      .split(',')
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0);
-    if (currentTags.includes(tagToToggle)) {
-      setTagsInput(currentTags.filter((t) => t !== tagToToggle).join(', '));
-    } else {
-      setTagsInput([...currentTags, tagToToggle].join(', '));
     }
   };
 
@@ -346,11 +365,7 @@ export default function VaultItemForm({
         vault_id: vaultId,
         account_name: name,
         notes: notesBytes,
-        tags: tagsInput
-          .split(',')
-          .map((t) => t.trim())
-          .filter((t) => t.length > 0),
-        // Preserve existing favorite status if editing, default false if new
+        tags: selectedTags, // Assign contextual tags directly
         is_favorite: initialData ? initialData.is_favorite : false,
         metadata: initialData?.metadata || {
           created_at: now,
@@ -438,6 +453,15 @@ export default function VaultItemForm({
       setIsSaving(false);
     }
   };
+
+  // Prepare filtered tags for the combo box popup
+  const filteredExistingTags = globalTags.filter(
+    (t) => !selectedTags.includes(t) && t.toLowerCase().includes(tagInputValue.toLowerCase())
+  );
+  const isCreatingNewTag =
+    tagInputValue.trim().length > 0 &&
+    !globalTags.some((t) => t.toLowerCase() === tagInputValue.trim().toLowerCase());
+  const showTagPopover = filteredExistingTags.length > 0 || isCreatingNewTag;
 
   const renderUrlComboBox = (labelText: string) => (
     <ComboBox
@@ -877,6 +901,10 @@ export default function VaultItemForm({
                         key={type.id}
                         onPress={() => {
                           setAccountType(type.id);
+                          accountTypeRef.current = type.id;
+                          if (type.id !== 'Login') {
+                            setUsername(''); // Clear prefilled username so it doesn't bleed into Password Identifiers
+                          }
                           setStep(2);
                         }}
                         className={`flex flex-col items-start p-5 bg-surface border border-border rounded-xl hover:border-primary hover:bg-primary/5 transition-all text-left shadow-sm group w-full h-full ${kbRing}`}
@@ -924,39 +952,150 @@ export default function VaultItemForm({
                       <hr className="border-border" />
 
                       <div className="space-y-4 pb-4">
-                        <div>
-                          <Label className="flex items-center text-sm font-medium text-text-muted mb-2">
+                        {/* --- DYNAMIC TAG INPUT FIELD --- */}
+                        <div className="flex flex-col gap-2">
+                          <Label className="flex items-center text-sm font-medium text-text-muted">
                             <Tag className="w-4 h-4 mr-1.5" /> Classification Tags
                           </Label>
-                          {globalTags.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mb-3">
-                              {globalTags.map((tag) => {
-                                const isSelected = tagsInput
-                                  .split(',')
-                                  .map((t) => t.trim())
-                                  .includes(tag);
-                                return (
-                                  <Button
-                                    key={tag}
-                                    onPress={() => toggleTag(tag)}
-                                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${isSelected ? 'bg-primary text-white border-primary' : 'bg-background text-text-main border-border hover:border-primary hover:text-primary'} ${kbRing}`}
+
+                          {/* 1. The Input and Selected Badges */}
+                          <div
+                            className={`flex flex-wrap items-center gap-1.5 p-1.5 min-h-[40px] bg-background border border-border rounded-md focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/60 transition-colors`}
+                          >
+                            {selectedTags.map((tag) => (
+                              <div
+                                key={tag}
+                                className="flex items-center px-2 py-1 bg-primary/10 text-primary border border-primary/20 rounded-md text-xs font-medium select-none"
+                              >
+                                {tag}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setSelectedTags(selectedTags.filter((t) => t !== tag))
+                                  }
+                                  className="ml-1.5 text-primary/70 hover:text-primary outline-none cursor-pointer"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                            <ComboBox
+                              aria-label="Add tags"
+                              inputValue={tagInputValue}
+                              onInputChange={setTagInputValue}
+                              onSelectionChange={(key) => {
+                                if (!key) return;
+                                const newTag = key.toString().replace('CREATE:', '').trim();
+                                if (!newTag) return;
+
+                                // 1. Add to the item's selected tags
+                                if (!selectedTags.includes(newTag)) {
+                                  setSelectedTags([...selectedTags, newTag]);
+                                }
+
+                                // 2. If it's a brand new tag, save it globally for the future
+                                if (
+                                  !globalTags.some((t) => t.toLowerCase() === newTag.toLowerCase())
+                                ) {
+                                  setGlobalTags([...globalTags, newTag]);
+                                  invoke('add_global_tag', { tag: newTag }).catch(console.error);
+                                }
+
+                                setTagInputValue('');
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ',') {
+                                  e.preventDefault();
+                                  const newTag = tagInputValue.trim();
+                                  if (!newTag) return;
+
+                                  // 1. Add to the item's selected tags
+                                  if (!selectedTags.includes(newTag)) {
+                                    setSelectedTags([...selectedTags, newTag]);
+                                  }
+
+                                  // 2. If it's a brand new tag, save it globally for the future
+                                  if (
+                                    !globalTags.some(
+                                      (t) => t.toLowerCase() === newTag.toLowerCase()
+                                    )
+                                  ) {
+                                    setGlobalTags([...globalTags, newTag]);
+                                    invoke('add_global_tag', { tag: newTag }).catch(console.error);
+                                  }
+
+                                  setTagInputValue('');
+                                } else if (
+                                  e.key === 'Backspace' &&
+                                  tagInputValue === '' &&
+                                  selectedTags.length > 0
+                                ) {
+                                  setSelectedTags(selectedTags.slice(0, -1));
+                                }
+                              }}
+                              className="flex-1 min-w-[120px]"
+                            >
+                              <div className="relative w-full">
+                                <Input
+                                  placeholder={
+                                    selectedTags.length === 0
+                                      ? 'Type to search or create tags...'
+                                      : ''
+                                  }
+                                  className="w-full bg-transparent text-sm text-text-main placeholder:text-text-muted outline-none px-1 py-0.5 min-w-[50px]"
+                                />
+                              </div>
+                              {showTagPopover && (
+                                <Popover className="w-[200px] bg-surface border border-border rounded-md shadow-lg overflow-hidden animate-in fade-in slide-in-from-top-1 z-50 placement-bottom">
+                                  <ListBox className="outline-none p-1 max-h-48 overflow-y-auto">
+                                    {isCreatingNewTag && (
+                                      <ListBoxItem
+                                        key={`CREATE:${tagInputValue.trim()}`}
+                                        id={`CREATE:${tagInputValue.trim()}`}
+                                        textValue={tagInputValue.trim()}
+                                        className="px-2 py-1.5 cursor-pointer outline-none data-focused:bg-primary-muted rounded-md flex items-center transition-colors text-sm text-primary font-medium"
+                                      >
+                                        <Plus className="w-3.5 h-3.5 mr-2 shrink-0" /> Create "
+                                        {tagInputValue.trim()}"
+                                      </ListBoxItem>
+                                    )}
+                                    {filteredExistingTags.map((t) => (
+                                      <ListBoxItem
+                                        key={t}
+                                        id={t}
+                                        textValue={t}
+                                        className="px-2 py-1.5 cursor-pointer outline-none data-focused:bg-primary-muted rounded-md flex items-center transition-colors text-sm text-text-main"
+                                      >
+                                        <Tag className="w-3.5 h-3.5 mr-2 text-text-muted shrink-0" />
+                                        <span className="truncate">{t}</span>
+                                      </ListBoxItem>
+                                    ))}
+                                  </ListBox>
+                                </Popover>
+                              )}
+                            </ComboBox>
+                          </div>
+
+                          {/* 2. Quick-Add Available Tags List */}
+                          {globalTags.filter((t) => !selectedTags.includes(t)).length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1 animate-in fade-in duration-300">
+                              <span className="text-[11px] font-medium text-text-muted uppercase tracking-wider mr-1">
+                                Available:
+                              </span>
+                              {globalTags
+                                .filter((t) => !selectedTags.includes(t))
+                                .map((tag) => (
+                                  <button
+                                    key={`quick-add-${tag}`}
+                                    type="button"
+                                    onClick={() => setSelectedTags([...selectedTags, tag])}
+                                    className="px-2 py-1 bg-surface border border-border rounded-md text-xs text-text-muted hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                                   >
-                                    {isSelected ? `✓ ${tag}` : `+ ${tag}`}
-                                  </Button>
-                                );
-                              })}
+                                    + {tag}
+                                  </button>
+                                ))}
                             </div>
                           )}
-                          <TextField
-                            value={tagsInput}
-                            onChange={setTagsInput}
-                            className="w-full flex flex-col gap-1"
-                          >
-                            <Input
-                              placeholder="Or type custom tags (comma separated)..."
-                              className={`w-full px-3 py-2 bg-background border border-border rounded-md text-text-main text-sm transition-colors ${kbRing}`}
-                            />
-                          </TextField>
                         </div>
 
                         {accountType !== 'Secure Note' && (
