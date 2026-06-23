@@ -90,16 +90,44 @@ fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, Strin
 
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
-fn save_account(account: Account, state: tauri::State<'_, AppState>) -> Result<(), String> {
+fn save_account(mut account: Account, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut vault_guard = state.vault.lock().unwrap();
     let dek_guard = state.dek.lock().unwrap();
 
     if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        // Get precise current time in milliseconds
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
         if let Some(pos) = vault.accounts.iter().position(|a| a.id == account.id) {
+            let existing = &vault.accounts[pos];
+
+            // Safely compare all core data fields natively using Rust's PartialEq
+            let is_changed = existing.account_name != account.account_name
+                || existing.notes != account.notes
+                || existing.tags != account.tags
+                || existing.is_favorite != account.is_favorite
+                || existing.details != account.details
+                || existing.vault_id != account.vault_id;
+
+            if is_changed {
+                account.metadata.updated_at = now;
+            } else {
+                // If nothing changed, strictly preserve the old metadata
+                account.metadata = existing.metadata.clone();
+            }
+
             vault.accounts[pos] = account;
         } else {
+            // If it's a completely new account, stamp everything
+            account.metadata.created_at = now;
+            account.metadata.updated_at = now;
+            account.metadata.accessed_at = now;
             vault.accounts.push(account);
         }
+
         update_vault(vault, dek, &state.file_path)?;
         Ok(())
     } else {
