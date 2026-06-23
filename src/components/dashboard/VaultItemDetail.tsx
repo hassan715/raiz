@@ -209,12 +209,16 @@ export default function VaultItemDetail({
     });
   }
 
-  // --- SECURE CLIPBOARD COPY ---
+  // SECURE CLIPBOARD COPY
   const copyToClipboard = async (text: string, fieldName: string) => {
     if (!text) return;
     try {
       await writeText(text);
       window.dispatchEvent(new Event('app-clipboard-copied'));
+
+      // Update the accessed_at timestamp silently in the background
+      await invoke('update_accessed_at', { accountId: account.id });
+      onUpdated(); // Silently trigger a UI refresh to show the new time
     } catch (err) {
       console.warn('Tauri clipboard unavailable, using web fallback.', err);
       await navigator.clipboard.writeText(text);

@@ -251,7 +251,7 @@ fn get_global_tags(state: tauri::State<'_, AppState>) -> Result<Vec<String>, Str
     }
 }
 
-// --- NEW COMMAND: Calculate Active Tags Only ---
+// Calculate Active Tags Only
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_active_tags(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
@@ -466,6 +466,30 @@ fn get_most_common_username(state: tauri::State<'_, AppState>) -> Result<String,
     }
 }
 
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn update_accessed_at(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut vault_guard = state.vault.lock().unwrap();
+    let dek_guard = state.dek.lock().unwrap();
+
+    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+        if let Some(pos) = vault.accounts.iter().position(|a| a.id == account_id) {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+
+            vault.accounts[pos].metadata.accessed_at = now;
+            update_vault(vault, dek, &state.file_path)?;
+            Ok(())
+        } else {
+            Err("Account not found.".to_string())
+        }
+    } else {
+        Err("Vault is locked.".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let state = AppState {
@@ -548,7 +572,7 @@ pub fn run() {
             delete_entire_vault,
             reset_master_password,
             get_global_tags,
-            get_active_tags, // <-- Added Active Tags
+            get_active_tags,
             add_global_tag,
             delete_global_tag,
             get_vaults,
@@ -558,7 +582,8 @@ pub fn run() {
             get_profile_name,
             update_profile_name,
             move_account_to_vault,
-            get_most_common_username
+            get_most_common_username,
+            update_accessed_at
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
