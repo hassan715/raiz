@@ -9,6 +9,7 @@ use std::fs;
 use std::sync::Mutex;
 use storage::{load_vault, recover_vault, save_vault, update_vault};
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -73,7 +74,7 @@ fn lock_vault(state: tauri::State<'_, AppState>) {
 
     let mut dek_guard = state.dek.lock().unwrap();
     if let Some(mut dek) = *dek_guard {
-        dek.fill(0);
+        dek.zeroize();
     }
     *dek_guard = None;
 }
@@ -217,7 +218,7 @@ fn delete_entire_vault(state: tauri::State<'_, AppState>) -> Result<(), String> 
     *state.vault.lock().unwrap() = None;
     let mut dek_guard = state.dek.lock().unwrap();
     if let Some(mut dek) = *dek_guard {
-        dek.fill(0);
+        dek.zeroize();
     }
     *dek_guard = None;
 
