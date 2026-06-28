@@ -3,7 +3,7 @@ mod models;
 mod storage;
 
 use crypto::{generate_password, generate_recovery_phrase};
-use models::{Account, Vault};
+use models::{Account, AccountDetails, Vault};
 use rand::{rngs::OsRng, RngCore};
 use region::{lock, unlock};
 use std::collections::{HashMap, HashSet};
@@ -17,6 +17,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_clipboard_manager::ClipboardExt; // <--- REQUIRED FOR RUST CLIPBOARD CONTROL
 
 #[cfg(target_family = "unix")]
 fn prevent_os_swap() {
@@ -31,14 +32,13 @@ fn prevent_os_swap() {}
 // --- ACTIVE MEMORY STATE ---
 struct AppState {
     // The vault is stored strictly encrypted in RAM via an Ephemeral Session Key (ESK)
-    encrypted_vault_ram: Mutex<Option<(Vec<u8>, Vec<u8>)>>, // (nonce, ciphertext)
+    encrypted_vault_ram: Mutex<Option<(Vec<u8>, Vec<u8>)>>,
     ram_key: [u8; 32],
     dek: Mutex<Option<[u8; 32]>>,
     file_path: String,
 }
 
 impl AppState {
-    /// Decrypts the vault into a short-lived plaintext struct for immediate processing
     fn get_vault(&self) -> Result<Vault, String> {
         let guard = self.encrypted_vault_ram.lock().unwrap();
         if let Some((nonce, ciphertext)) = guard.as_ref() {
@@ -50,12 +50,43 @@ impl AppState {
         }
     }
 
-    /// Encrypts the modified vault and securely stores it back into RAM
     fn set_vault(&self, vault: &Vault) -> Result<(), String> {
         let vault_bytes = rmp_serde::to_vec(vault).map_err(|e| e.to_string())?;
         let (nonce, ciphertext) = crate::crypto::encrypt(&self.ram_key, &vault_bytes)?;
         *self.encrypted_vault_ram.lock().unwrap() = Some((nonce, ciphertext));
         Ok(())
+    }
+}
+
+// --- TRUE ZERO-KNOWLEDGE HELPER ---
+fn extract_secret_bytes(account: &Account, field: &str) -> Option<Vec<u8>> {
+    match field {
+        "password" => match &account.details {
+            AccountDetails::Login { password, .. } => password.clone(),
+            AccountDetails::Password { password, .. } => password.clone(),
+            AccountDetails::CreditCard { cvv, .. } => cvv.clone(),
+            AccountDetails::CryptoWallet { seed_phrase, .. } => seed_phrase.clone(),
+            _ => None,
+        },
+        "card_number" => {
+            if let AccountDetails::CreditCard { card_number, .. } = &account.details {
+                card_number.clone()
+            } else {
+                None
+            }
+        }
+        "recovery_codes" => {
+            if let AccountDetails::Login { recovery_codes, .. } = &account.details {
+                let codes: Vec<String> = recovery_codes
+                    .iter()
+                    .map(|rc| String::from_utf8_lossy(&rc.code).to_string())
+                    .collect();
+                Some(codes.join("\n").into_bytes())
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 
@@ -124,12 +155,146 @@ fn lock_vault(state: tauri::State<'_, AppState>) {
     *dek_guard = None;
 }
 
-// STEP 1: We still return the full, unscrubbed account list here.
-// Scrubbing will be implemented in Step 2.
+// STEP 2: SCRUB ALL SECRETS BEFORE SENDING TO REACT
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, String> {
-    Ok(state.get_vault()?.accounts)
+    let vault = state.get_vault()?;
+    let mut scrubbed = Vec::new();
+
+    for mut acc in vault.accounts {
+        match &mut acc.details {
+            AccountDetails::Login {
+                password,
+                recovery_codes,
+                ..
+            } => {
+                *password = None;
+                for rc in recovery_codes.iter_mut() {
+                    rc.code = vec![];
+                }
+            }
+            AccountDetails::Password { password, .. } => *password = None,
+            AccountDetails::CreditCard {
+                card_number, cvv, ..
+            } => {
+                *card_number = None;
+                *cvv = None;
+            }
+            AccountDetails::CryptoWallet { seed_phrase, .. } => *seed_phrase = None,
+            _ => {}
+        }
+        scrubbed.push(acc);
+    }
+    Ok(scrubbed)
+}
+
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn get_full_account(
+    account_id: Uuid,
+    state: tauri::State<'_, AppState>,
+) -> Result<Account, String> {
+    let mut vault = state.get_vault()?;
+
+    if let Some(pos) = vault.accounts.iter().position(|a| a.id == account_id) {
+        // Silently update accessed_at because we are viewing the full item (e.g., for edit)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        vault.accounts[pos].metadata.accessed_at = now;
+        let account = vault.accounts[pos].clone();
+
+        let dek_guard = state.dek.lock().unwrap();
+        if let Some(dek) = dek_guard.as_ref() {
+            state.set_vault(&vault)?;
+            let _ = update_vault(&vault, dek, &state.file_path);
+        }
+        Ok(account)
+    } else {
+        Err("Account not found.".to_string())
+    }
+}
+
+// JUST-IN-TIME DECRYPTION: COPIES DIRECTLY TO SYSTEM CLIPBOARD FROM RUST
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn copy_secret_to_clipboard(
+    account_id: Uuid,
+    field: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut vault = state.get_vault()?;
+
+    if let Some(pos) = vault.accounts.iter().position(|a| a.id == account_id) {
+        let account = &vault.accounts[pos];
+
+        if let Some(secret_bytes) = extract_secret_bytes(account, &field) {
+            let secret_str =
+                String::from_utf8(secret_bytes).map_err(|_| "Invalid Encoding".to_string())?;
+            app.clipboard()
+                .write_text(secret_str)
+                .map_err(|e| e.to_string())?;
+
+            // Silently update accessed_at
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            vault.accounts[pos].metadata.accessed_at = now;
+
+            let dek_guard = state.dek.lock().unwrap();
+            if let Some(dek) = dek_guard.as_ref() {
+                state.set_vault(&vault)?;
+                let _ = update_vault(&vault, dek, &state.file_path); // Ignore error on background update
+            }
+            Ok(())
+        } else {
+            Err("Secret data not found or empty.".to_string())
+        }
+    } else {
+        Err("Account not found.".to_string())
+    }
+}
+
+// JUST-IN-TIME DECRYPTION: FETCHES A SINGLE SECRET STRING TO DISPLAY IN REACT
+#[cfg(not(tarpaulin_include))]
+#[tauri::command]
+fn reveal_secret(
+    account_id: Uuid,
+    field: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let mut vault = state.get_vault()?;
+
+    if let Some(pos) = vault.accounts.iter().position(|a| a.id == account_id) {
+        let account = &vault.accounts[pos];
+
+        if let Some(secret_bytes) = extract_secret_bytes(account, &field) {
+            let secret_str =
+                String::from_utf8(secret_bytes).map_err(|_| "Invalid Encoding".to_string())?;
+
+            // Silently update accessed_at
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            vault.accounts[pos].metadata.accessed_at = now;
+
+            let dek_guard = state.dek.lock().unwrap();
+            if let Some(dek) = dek_guard.as_ref() {
+                state.set_vault(&vault)?;
+                let _ = update_vault(&vault, dek, &state.file_path);
+            }
+            Ok(secret_str)
+        } else {
+            Ok(String::new())
+        }
+    } else {
+        Err("Account not found.".to_string())
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -245,6 +410,7 @@ fn export_vault(destination_path: String, state: tauri::State<'_, AppState>) -> 
     }
 
     std::fs::copy(vault_path, &destination_path).map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -517,11 +683,9 @@ fn update_accessed_at(account_id: Uuid, state: tauri::State<'_, AppState>) -> Re
 pub fn run() {
     prevent_os_swap();
 
-    // 1. Generate the Ephemeral Session Key (ESK) securely
     let mut ram_key = [0u8; 32];
     OsRng.fill_bytes(&mut ram_key);
 
-    // 2. Lock the ESK to the hardware RAM (No Swap)
     #[cfg(target_family = "unix")]
     unsafe {
         let _ = region::lock(ram_key.as_ptr(), ram_key.len());
@@ -535,6 +699,14 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let toggle_i = MenuItem::with_id(app, "toggle", "Show/Hide Raiz", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit Raiz", true, None::<&str>)?;
@@ -588,7 +760,10 @@ pub fn run() {
             unlock_vault,
             unlock_with_recovery,
             lock_vault,
-            get_accounts,
+            get_accounts,             // <--- Now scrubs data
+            get_full_account,         // <--- New Endpoint
+            copy_secret_to_clipboard, // <--- New Endpoint
+            reveal_secret,            // <--- New Endpoint
             save_account,
             delete_account,
             change_master_password,
