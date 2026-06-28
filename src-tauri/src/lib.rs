@@ -4,8 +4,9 @@ mod storage;
 
 use crypto::{generate_password, generate_recovery_phrase};
 use models::{Account, Vault};
+use rand::{rngs::OsRng, RngCore};
 use region::{lock, unlock};
-use std::collections::{HashMap, HashSet}; // <-- Added HashSet
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::sync::Mutex;
 use storage::{load_vault, recover_vault, save_vault, update_vault};
@@ -17,11 +18,45 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 
+#[cfg(target_family = "unix")]
+fn prevent_os_swap() {
+    unsafe {
+        let _ = libc::mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE);
+    }
+}
+
+#[cfg(not(target_family = "unix"))]
+fn prevent_os_swap() {}
+
 // --- ACTIVE MEMORY STATE ---
 struct AppState {
-    vault: Mutex<Option<Vault>>,
+    // The vault is stored strictly encrypted in RAM via an Ephemeral Session Key (ESK)
+    encrypted_vault_ram: Mutex<Option<(Vec<u8>, Vec<u8>)>>, // (nonce, ciphertext)
+    ram_key: [u8; 32],
     dek: Mutex<Option<[u8; 32]>>,
     file_path: String,
+}
+
+impl AppState {
+    /// Decrypts the vault into a short-lived plaintext struct for immediate processing
+    fn get_vault(&self) -> Result<Vault, String> {
+        let guard = self.encrypted_vault_ram.lock().unwrap();
+        if let Some((nonce, ciphertext)) = guard.as_ref() {
+            let vault_bytes = crate::crypto::decrypt(&self.ram_key, nonce, ciphertext)?;
+            let vault: Vault = rmp_serde::from_slice(&vault_bytes).map_err(|e| e.to_string())?;
+            Ok(vault)
+        } else {
+            Err("Vault is currently locked.".to_string())
+        }
+    }
+
+    /// Encrypts the modified vault and securely stores it back into RAM
+    fn set_vault(&self, vault: &Vault) -> Result<(), String> {
+        let vault_bytes = rmp_serde::to_vec(vault).map_err(|e| e.to_string())?;
+        let (nonce, ciphertext) = crate::crypto::encrypt(&self.ram_key, &vault_bytes)?;
+        *self.encrypted_vault_ram.lock().unwrap() = Some((nonce, ciphertext));
+        Ok(())
+    }
 }
 
 // --- TAURI COMMANDS (THE API) ---
@@ -60,12 +95,12 @@ fn create_vault(
 fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
     match load_vault(password, &state.file_path) {
         Ok((decrypted_vault, decrypted_dek)) => {
-            *state.vault.lock().unwrap() = Some(decrypted_vault);
+            state.set_vault(&decrypted_vault)?;
 
             let mut dek_guard = state.dek.lock().unwrap();
             *dek_guard = Some(decrypted_dek);
 
-            // SECURE MEMORY: Lock the DEK to RAM to prevent swap leakage
+            // SECURE MEMORY: Lock the DEK to RAM
             if let Some(ref mut active_dek) = *dek_guard {
                 let _ = lock(active_dek.as_ptr(), active_dek.len());
             }
@@ -79,36 +114,31 @@ fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<Str
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn lock_vault(state: tauri::State<'_, AppState>) {
-    *state.vault.lock().unwrap() = None;
+    *state.encrypted_vault_ram.lock().unwrap() = None;
 
     let mut dek_guard = state.dek.lock().unwrap();
-    // Using `ref mut` ensures we operate on the actual heap address, not a stack copy
     if let Some(ref mut active_dek) = *dek_guard {
         active_dek.zeroize();
-        // SECURE MEMORY: Release the lock so the OS can reclaim the memory normally
         let _ = unlock(active_dek.as_ptr(), active_dek.len());
     }
     *dek_guard = None;
 }
 
+// STEP 1: We still return the full, unscrubbed account list here.
+// Scrubbing will be implemented in Step 2.
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, String> {
-    let vault_guard = state.vault.lock().unwrap();
-    match &*vault_guard {
-        Some(vault) => Ok(vault.accounts.clone()),
-        None => Err("Vault is currently locked.".to_string()),
-    }
+    Ok(state.get_vault()?.accounts)
 }
 
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn save_account(mut account: Account, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut vault_guard = state.vault.lock().unwrap();
+    let mut vault = state.get_vault()?;
     let dek_guard = state.dek.lock().unwrap();
 
-    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
-        // Get precise current time in milliseconds
+    if let Some(dek) = dek_guard.as_ref() {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -117,7 +147,6 @@ fn save_account(mut account: Account, state: tauri::State<'_, AppState>) -> Resu
         if let Some(pos) = vault.accounts.iter().position(|a| a.id == account.id) {
             let existing = &vault.accounts[pos];
 
-            // Safely compare all core data fields natively using Rust's PartialEq
             let is_changed = existing.account_name != account.account_name
                 || existing.notes != account.notes
                 || existing.tags != account.tags
@@ -128,20 +157,19 @@ fn save_account(mut account: Account, state: tauri::State<'_, AppState>) -> Resu
             if is_changed {
                 account.metadata.updated_at = now;
             } else {
-                // If nothing changed, strictly preserve the old metadata
                 account.metadata = existing.metadata.clone();
             }
 
             vault.accounts[pos] = account;
         } else {
-            // If it's a completely new account, stamp everything
             account.metadata.created_at = now;
             account.metadata.updated_at = now;
             account.metadata.accessed_at = now;
             vault.accounts.push(account);
         }
 
-        update_vault(vault, dek, &state.file_path)?;
+        state.set_vault(&vault)?;
+        update_vault(&vault, dek, &state.file_path)?;
         Ok(())
     } else {
         Err("Vault is locked. Cannot save.".to_string())
@@ -153,12 +181,11 @@ fn save_account(mut account: Account, state: tauri::State<'_, AppState>) -> Resu
 fn unlock_with_recovery(phrase: &str, state: tauri::State<'_, AppState>) -> Result<String, String> {
     match recover_vault(phrase, &state.file_path) {
         Ok((decrypted_vault, decrypted_dek)) => {
-            *state.vault.lock().unwrap() = Some(decrypted_vault);
+            state.set_vault(&decrypted_vault)?;
 
             let mut dek_guard = state.dek.lock().unwrap();
             *dek_guard = Some(decrypted_dek);
 
-            // SECURE MEMORY: Lock the DEK to RAM
             if let Some(ref mut active_dek) = *dek_guard {
                 let _ = lock(active_dek.as_ptr(), active_dek.len());
             }
@@ -172,12 +199,13 @@ fn unlock_with_recovery(phrase: &str, state: tauri::State<'_, AppState>) -> Resu
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn delete_account(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut vault_guard = state.vault.lock().unwrap();
+    let mut vault = state.get_vault()?;
     let dek_guard = state.dek.lock().unwrap();
 
-    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+    if let Some(dek) = dek_guard.as_ref() {
         vault.accounts.retain(|a| a.id != account_id);
-        update_vault(vault, dek, &state.file_path)?;
+        state.set_vault(&vault)?;
+        update_vault(&vault, dek, &state.file_path)?;
         Ok(())
     } else {
         Err("Vault is locked.".to_string())
@@ -195,15 +223,10 @@ fn change_master_password(
         return Err("Incorrect current Master Password.".to_string());
     }
 
-    let vault_guard = state.vault.lock().unwrap();
-
-    if let Some(vault) = vault_guard.as_ref() {
-        let new_phrase = generate_recovery_phrase();
-        save_vault(vault, new_password, &new_phrase, &state.file_path)?;
-        Ok(new_phrase)
-    } else {
-        Err("Vault is locked. Cannot change password.".to_string())
-    }
+    let vault = state.get_vault()?;
+    let new_phrase = generate_recovery_phrase();
+    save_vault(&vault, new_password, &new_phrase, &state.file_path)?;
+    Ok(new_phrase)
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -222,7 +245,6 @@ fn export_vault(destination_path: String, state: tauri::State<'_, AppState>) -> 
     }
 
     std::fs::copy(vault_path, &destination_path).map_err(|e| e.to_string())?;
-
     Ok(())
 }
 
@@ -235,7 +257,7 @@ fn delete_entire_vault(state: tauri::State<'_, AppState>) -> Result<(), String> 
         fs::remove_file(vault_path).map_err(|e| e.to_string())?;
     }
 
-    *state.vault.lock().unwrap() = None;
+    *state.encrypted_vault_ram.lock().unwrap() = None;
     let mut dek_guard = state.dek.lock().unwrap();
     if let Some(ref mut active_dek) = *dek_guard {
         active_dek.zeroize();
@@ -252,62 +274,47 @@ fn reset_master_password(
     new_password: &str,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    let vault_guard = state.vault.lock().unwrap();
-
-    if let Some(vault) = vault_guard.as_ref() {
-        let new_phrase = generate_recovery_phrase();
-        storage::save_vault(vault, new_password, &new_phrase, &state.file_path)?;
-        Ok(new_phrase)
-    } else {
-        Err("Vault is locked. Cannot reset password.".to_string())
-    }
+    let vault = state.get_vault()?;
+    let new_phrase = generate_recovery_phrase();
+    storage::save_vault(&vault, new_password, &new_phrase, &state.file_path)?;
+    Ok(new_phrase)
 }
 
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_global_tags(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
-    let vault_guard = state.vault.lock().unwrap();
-    match &*vault_guard {
-        Some(vault) => Ok(vault.tags.clone()),
-        None => Err("Vault is currently locked.".to_string()),
-    }
+    Ok(state.get_vault()?.tags)
 }
 
-// Calculate Active Tags Only
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_active_tags(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
-    let vault_guard = state.vault.lock().unwrap();
+    let vault = state.get_vault()?;
+    let mut active_tags: HashSet<String> = HashSet::new();
 
-    if let Some(vault) = vault_guard.as_ref() {
-        let mut active_tags: HashSet<String> = HashSet::new();
-
-        for account in &vault.accounts {
-            for tag in &account.tags {
-                active_tags.insert(tag.clone());
-            }
+    for account in &vault.accounts {
+        for tag in &account.tags {
+            active_tags.insert(tag.clone());
         }
-
-        let mut tags_vec: Vec<String> = active_tags.into_iter().collect();
-        // Sort tags alphabetically for the UI
-        tags_vec.sort_by_key(|a| a.to_lowercase());
-        Ok(tags_vec)
-    } else {
-        Err("Vault is locked.".to_string())
     }
+
+    let mut tags_vec: Vec<String> = active_tags.into_iter().collect();
+    tags_vec.sort_by_key(|a| a.to_lowercase());
+    Ok(tags_vec)
 }
 
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn add_global_tag(tag: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut vault_guard = state.vault.lock().unwrap();
+    let mut vault = state.get_vault()?;
     let dek_guard = state.dek.lock().unwrap();
 
-    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+    if let Some(dek) = dek_guard.as_ref() {
         let clean_tag = tag.trim().to_string();
         if !clean_tag.is_empty() && !vault.tags.contains(&clean_tag) {
             vault.tags.push(clean_tag);
-            storage::update_vault(vault, dek, &state.file_path)?;
+            state.set_vault(&vault)?;
+            storage::update_vault(&vault, dek, &state.file_path)?;
         }
         Ok(())
     } else {
@@ -318,12 +325,13 @@ fn add_global_tag(tag: String, state: tauri::State<'_, AppState>) -> Result<(), 
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn delete_global_tag(tag: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut vault_guard = state.vault.lock().unwrap();
+    let mut vault = state.get_vault()?;
     let dek_guard = state.dek.lock().unwrap();
 
-    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+    if let Some(dek) = dek_guard.as_ref() {
         vault.tags.retain(|t| t != &tag);
-        storage::update_vault(vault, dek, &state.file_path)?;
+        state.set_vault(&vault)?;
+        storage::update_vault(&vault, dek, &state.file_path)?;
         Ok(())
     } else {
         Err("Vault is locked.".to_string())
@@ -333,11 +341,7 @@ fn delete_global_tag(tag: String, state: tauri::State<'_, AppState>) -> Result<(
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_vaults(state: tauri::State<'_, AppState>) -> Result<Vec<models::InnerVault>, String> {
-    let vault_guard = state.vault.lock().unwrap();
-    match &*vault_guard {
-        Some(vault) => Ok(vault.vaults.clone()),
-        None => Err("Vault is currently locked.".to_string()),
-    }
+    Ok(state.get_vault()?.vaults)
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -347,10 +351,10 @@ fn create_inner_vault(
     description: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut vault_guard = state.vault.lock().unwrap();
+    let mut vault = state.get_vault()?;
     let dek_guard = state.dek.lock().unwrap();
 
-    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+    if let Some(dek) = dek_guard.as_ref() {
         let desc_opt = if description.trim().is_empty() {
             None
         } else {
@@ -358,7 +362,8 @@ fn create_inner_vault(
         };
 
         vault.add_inner_vault(&name, desc_opt)?;
-        crate::storage::update_vault(vault, dek, &state.file_path)?;
+        state.set_vault(&vault)?;
+        crate::storage::update_vault(&vault, dek, &state.file_path)?;
         Ok(())
     } else {
         Err("Vault is locked.".to_string())
@@ -374,14 +379,15 @@ fn edit_inner_vault(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     let uuid = uuid::Uuid::parse_str(&id).map_err(|_| "Invalid vault ID".to_string())?;
-    let mut vault_guard = state.vault.lock().unwrap();
+    let mut vault = state.get_vault()?;
     let dek_guard = state.dek.lock().unwrap();
 
-    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+    if let Some(dek) = dek_guard.as_ref() {
         let desc_opt = description.filter(|d| !d.trim().is_empty());
 
         vault.update_inner_vault(uuid, &name, desc_opt)?;
-        crate::storage::update_vault(vault, dek, &state.file_path)?;
+        state.set_vault(&vault)?;
+        crate::storage::update_vault(&vault, dek, &state.file_path)?;
         Ok(())
     } else {
         Err("Vault is locked.".to_string())
@@ -392,12 +398,13 @@ fn edit_inner_vault(
 #[tauri::command]
 fn delete_inner_vault(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let uuid = uuid::Uuid::parse_str(&id).map_err(|_| "Invalid vault ID".to_string())?;
-    let mut vault_guard = state.vault.lock().unwrap();
+    let mut vault = state.get_vault()?;
     let dek_guard = state.dek.lock().unwrap();
 
-    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+    if let Some(dek) = dek_guard.as_ref() {
         vault.delete_inner_vault(uuid)?;
-        crate::storage::update_vault(vault, dek, &state.file_path)?;
+        state.set_vault(&vault)?;
+        crate::storage::update_vault(&vault, dek, &state.file_path)?;
         Ok(())
     } else {
         Err("Vault is locked.".to_string())
@@ -407,24 +414,21 @@ fn delete_inner_vault(id: String, state: tauri::State<'_, AppState>) -> Result<(
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_profile_name(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let vault_guard = state.vault.lock().unwrap();
-    match &*vault_guard {
-        Some(vault) => Ok(vault.profile_name.clone()),
-        None => Err("Vault is locked.".to_string()),
-    }
+    Ok(state.get_vault()?.profile_name)
 }
 
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn update_profile_name(new_name: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut vault_guard = state.vault.lock().unwrap();
+    let mut vault = state.get_vault()?;
     let dek_guard = state.dek.lock().unwrap();
 
-    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+    if let Some(dek) = dek_guard.as_ref() {
         let clean_name = new_name.trim().to_string();
         if !clean_name.is_empty() {
             vault.profile_name = clean_name;
-            storage::update_vault(vault, dek, &state.file_path)?;
+            state.set_vault(&vault)?;
+            storage::update_vault(&vault, dek, &state.file_path)?;
         }
         Ok(())
     } else {
@@ -439,13 +443,14 @@ fn move_account_to_vault(
     new_vault_id: Uuid,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut vault_guard = state.vault.lock().unwrap();
+    let mut vault = state.get_vault()?;
     let dek_guard = state.dek.lock().unwrap();
 
-    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+    if let Some(dek) = dek_guard.as_ref() {
         if let Some(account) = vault.accounts.iter_mut().find(|a| a.id == account_id) {
             account.vault_id = Some(new_vault_id);
-            crate::storage::update_vault(vault, dek, &state.file_path)?;
+            state.set_vault(&vault)?;
+            crate::storage::update_vault(&vault, dek, &state.file_path)?;
             Ok(())
         } else {
             Err("Account not found in active memory.".to_string())
@@ -458,43 +463,38 @@ fn move_account_to_vault(
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn get_most_common_username(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let vault_guard = state.vault.lock().unwrap();
+    let vault = state.get_vault()?;
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    let mut max_count = 0;
+    let mut most_common = String::new();
 
-    if let Some(vault) = vault_guard.as_ref() {
-        let mut counts: HashMap<&str, usize> = HashMap::new();
-        let mut max_count = 0;
-        let mut most_common = String::new();
-
-        for account in &vault.accounts {
-            if let models::AccountDetails::Login {
-                username: Some(ref uname),
-                ..
-            } = account.details
-            {
-                let clean_uname = uname.trim();
-                if !clean_uname.is_empty() {
-                    let count = counts.entry(clean_uname).or_insert(0);
-                    *count += 1;
-                    if *count > max_count {
-                        max_count = *count;
-                        most_common = clean_uname.to_string();
-                    }
+    for account in &vault.accounts {
+        if let models::AccountDetails::Login {
+            username: Some(ref uname),
+            ..
+        } = account.details
+        {
+            let clean_uname = uname.trim();
+            if !clean_uname.is_empty() {
+                let count = counts.entry(clean_uname).or_insert(0);
+                *count += 1;
+                if *count > max_count {
+                    max_count = *count;
+                    most_common = clean_uname.to_string();
                 }
             }
         }
-        Ok(most_common)
-    } else {
-        Err("Vault is locked.".to_string())
     }
+    Ok(most_common)
 }
 
 #[cfg(not(tarpaulin_include))]
 #[tauri::command]
 fn update_accessed_at(account_id: Uuid, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut vault_guard = state.vault.lock().unwrap();
+    let mut vault = state.get_vault()?;
     let dek_guard = state.dek.lock().unwrap();
 
-    if let (Some(vault), Some(dek)) = (vault_guard.as_mut(), dek_guard.as_ref()) {
+    if let Some(dek) = dek_guard.as_ref() {
         if let Some(pos) = vault.accounts.iter().position(|a| a.id == account_id) {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -502,7 +502,8 @@ fn update_accessed_at(account_id: Uuid, state: tauri::State<'_, AppState>) -> Re
                 .as_millis() as u64;
 
             vault.accounts[pos].metadata.accessed_at = now;
-            update_vault(vault, dek, &state.file_path)?;
+            state.set_vault(&vault)?;
+            update_vault(&vault, dek, &state.file_path)?;
             Ok(())
         } else {
             Err("Account not found.".to_string())
@@ -512,42 +513,28 @@ fn update_accessed_at(account_id: Uuid, state: tauri::State<'_, AppState>) -> Re
     }
 }
 
-/// Prevents the OS from paging sensitive memory to disk (Swap File/Pagefile).
-#[cfg(target_family = "unix")]
-fn prevent_os_swap() {
-    unsafe {
-        // Lock all current and future memory allocations into RAM.
-        // We ignore the result because non-root Linux users might hit ulimit restrictions,
-        // but this provides rigorous protection for macOS and properly configured Linux hosts.
-        libc::mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE);
-    }
-}
-
-#[cfg(not(target_family = "unix"))]
-fn prevent_os_swap() {
-    // On Windows, process-wide locking requires complex working-set modifications.
-    // We rely on the explicit `region::lock` calls for the DEK as our security baseline.
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     prevent_os_swap();
+
+    // 1. Generate the Ephemeral Session Key (ESK) securely
+    let mut ram_key = [0u8; 32];
+    OsRng.fill_bytes(&mut ram_key);
+
+    // 2. Lock the ESK to the hardware RAM (No Swap)
+    #[cfg(target_family = "unix")]
+    unsafe {
+        let _ = region::lock(ram_key.as_ptr(), ram_key.len());
+    }
+
     let state = AppState {
-        vault: Mutex::new(None),
+        encrypted_vault_ram: Mutex::new(None),
+        ram_key,
         dek: Mutex::new(None),
         file_path: "raiz_vault.enc".to_string(),
     };
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec![]),
-        ))
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let toggle_i = MenuItem::with_id(app, "toggle", "Show/Hide Raiz", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit Raiz", true, None::<&str>)?;
@@ -557,9 +544,7 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => {
-                        app.exit(0);
-                    }
+                    "quit" => app.exit(0),
                     "toggle" => {
                         if let Some(window) = app.get_webview_window("main") {
                             let is_visible = window.is_visible().unwrap_or(false);
