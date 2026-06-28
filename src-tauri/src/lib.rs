@@ -4,11 +4,13 @@ mod storage;
 
 use crypto::{generate_password, generate_recovery_phrase};
 use models::{Account, Vault};
+use region::{lock, unlock};
 use std::collections::{HashMap, HashSet}; // <-- Added HashSet
 use std::fs;
 use std::sync::Mutex;
 use storage::{load_vault, recover_vault, save_vault, update_vault};
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -59,7 +61,15 @@ fn unlock_vault(password: &str, state: tauri::State<'_, AppState>) -> Result<Str
     match load_vault(password, &state.file_path) {
         Ok((decrypted_vault, decrypted_dek)) => {
             *state.vault.lock().unwrap() = Some(decrypted_vault);
-            *state.dek.lock().unwrap() = Some(decrypted_dek);
+
+            let mut dek_guard = state.dek.lock().unwrap();
+            *dek_guard = Some(decrypted_dek);
+
+            // SECURE MEMORY: Lock the DEK to RAM to prevent swap leakage
+            if let Some(ref mut active_dek) = *dek_guard {
+                let _ = lock(active_dek.as_ptr(), active_dek.len());
+            }
+
             Ok("Vault unlocked".to_string())
         }
         Err(_) => Err("Invalid Password. Please try again.".to_string()),
@@ -72,8 +82,11 @@ fn lock_vault(state: tauri::State<'_, AppState>) {
     *state.vault.lock().unwrap() = None;
 
     let mut dek_guard = state.dek.lock().unwrap();
-    if let Some(mut dek) = *dek_guard {
-        dek.fill(0);
+    // Using `ref mut` ensures we operate on the actual heap address, not a stack copy
+    if let Some(ref mut active_dek) = *dek_guard {
+        active_dek.zeroize();
+        // SECURE MEMORY: Release the lock so the OS can reclaim the memory normally
+        let _ = unlock(active_dek.as_ptr(), active_dek.len());
     }
     *dek_guard = None;
 }
@@ -141,7 +154,15 @@ fn unlock_with_recovery(phrase: &str, state: tauri::State<'_, AppState>) -> Resu
     match recover_vault(phrase, &state.file_path) {
         Ok((decrypted_vault, decrypted_dek)) => {
             *state.vault.lock().unwrap() = Some(decrypted_vault);
-            *state.dek.lock().unwrap() = Some(decrypted_dek);
+
+            let mut dek_guard = state.dek.lock().unwrap();
+            *dek_guard = Some(decrypted_dek);
+
+            // SECURE MEMORY: Lock the DEK to RAM
+            if let Some(ref mut active_dek) = *dek_guard {
+                let _ = lock(active_dek.as_ptr(), active_dek.len());
+            }
+
             Ok("Vault recovered successfully.".to_string())
         }
         Err(_) => Err("Invalid recovery phrase.".to_string()),
@@ -216,8 +237,9 @@ fn delete_entire_vault(state: tauri::State<'_, AppState>) -> Result<(), String> 
 
     *state.vault.lock().unwrap() = None;
     let mut dek_guard = state.dek.lock().unwrap();
-    if let Some(mut dek) = *dek_guard {
-        dek.fill(0);
+    if let Some(ref mut active_dek) = *dek_guard {
+        active_dek.zeroize();
+        let _ = unlock(active_dek.as_ptr(), active_dek.len());
     }
     *dek_guard = None;
 
@@ -490,8 +512,26 @@ fn update_accessed_at(account_id: Uuid, state: tauri::State<'_, AppState>) -> Re
     }
 }
 
+/// Prevents the OS from paging sensitive memory to disk (Swap File/Pagefile).
+#[cfg(target_family = "unix")]
+fn prevent_os_swap() {
+    unsafe {
+        // Lock all current and future memory allocations into RAM.
+        // We ignore the result because non-root Linux users might hit ulimit restrictions,
+        // but this provides rigorous protection for macOS and properly configured Linux hosts.
+        libc::mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE);
+    }
+}
+
+#[cfg(not(target_family = "unix"))]
+fn prevent_os_swap() {
+    // On Windows, process-wide locking requires complex working-set modifications.
+    // We rely on the explicit `region::lock` calls for the DEK as our security baseline.
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    prevent_os_swap();
     let state = AppState {
         vault: Mutex::new(None),
         dek: Mutex::new(None),
