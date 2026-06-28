@@ -58,16 +58,28 @@ impl AppState {
     }
 }
 
-// --- TRUE ZERO-KNOWLEDGE HELPER ---
+// TRUE ZERO-KNOWLEDGE HELPER
 fn extract_secret_bytes(account: &Account, field: &str) -> Option<Vec<u8>> {
     match field {
         "password" => match &account.details {
             AccountDetails::Login { password, .. } => password.clone(),
             AccountDetails::Password { password, .. } => password.clone(),
-            AccountDetails::CreditCard { cvv, .. } => cvv.clone(),
-            AccountDetails::CryptoWallet { seed_phrase, .. } => seed_phrase.clone(),
             _ => None,
         },
+        "cvv" => {
+            if let AccountDetails::CreditCard { cvv, .. } = &account.details {
+                cvv.clone()
+            } else {
+                None
+            }
+        }
+        "seed_phrase" => {
+            if let AccountDetails::CryptoWallet { seed_phrase, .. } = &account.details {
+                seed_phrase.clone()
+            } else {
+                None
+            }
+        }
         "card_number" => {
             if let AccountDetails::CreditCard { card_number, .. } = &account.details {
                 card_number.clone()
@@ -267,7 +279,7 @@ fn reveal_secret(
     field: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    let mut vault = state.get_vault()?;
+    let vault = state.get_vault()?;
 
     if let Some(pos) = vault.accounts.iter().position(|a| a.id == account_id) {
         let account = &vault.accounts[pos];
@@ -276,18 +288,6 @@ fn reveal_secret(
             let secret_str =
                 String::from_utf8(secret_bytes).map_err(|_| "Invalid Encoding".to_string())?;
 
-            // Silently update accessed_at
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64;
-            vault.accounts[pos].metadata.accessed_at = now;
-
-            let dek_guard = state.dek.lock().unwrap();
-            if let Some(dek) = dek_guard.as_ref() {
-                state.set_vault(&vault)?;
-                let _ = update_vault(&vault, dek, &state.file_path);
-            }
             Ok(secret_str)
         } else {
             Ok(String::new())

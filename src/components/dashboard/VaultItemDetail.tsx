@@ -60,10 +60,13 @@ export default function VaultItemDetail({
   onUpdated,
   onEditRequest,
 }: VaultItemDetailProps) {
-  const [showPassword, setShowPassword] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // --- ZERO KNOWLEDGE STATE ---
+  // Only stores secrets actively being viewed by the user. Purged immediately when hidden.
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, string>>({});
 
   const [vaultName, setVaultName] = useState<string>('Personal');
   const [allVaults, setAllVaults] = useState<InnerVault[]>([]);
@@ -89,46 +92,12 @@ export default function VaultItemDetail({
   }, []);
   const kbRing = kbNav ? 'focus:ring-2 focus:ring-primary/60 outline-none' : 'outline-none';
 
-  // --- CONCEALED FIELDS LOGIC (CTRL+ALT SHORTCUT) ---
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const holdToReveal = localStorage.getItem('raiz_concealed_ctrlalt') === 'true';
-      // Mac uses Meta (Cmd) + Alt (Option), Windows/Linux uses Ctrl + Alt
-      if (holdToReveal && (e.ctrlKey || e.metaKey) && e.altKey) {
-        setShowPassword(true);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      const holdToReveal = localStorage.getItem('raiz_concealed_ctrlalt') === 'true';
-      const alwaysShow = localStorage.getItem('raiz_concealed_always') === 'true';
-
-      // If they release the keys, hide the password (unless "always show" is on)
-      if (holdToReveal && !((e.ctrlKey || e.metaKey) && e.altKey)) {
-        if (!alwaysShow) {
-          setShowPassword(false);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, []);
-
   const accountId = account?.id;
   const targetVaultId = account?.vault_id;
 
-  // Reset states when the selected account changes
+  // Reset states and PURGE SECRETS when the selected account changes
   useEffect(() => {
-    // Read the "Always Show" setting
-    const alwaysShow = localStorage.getItem('raiz_concealed_always') === 'true';
-    setShowPassword(alwaysShow);
-
+    setRevealedSecrets({});
     setShowMetadata(false);
     setIsMoveModalOpen(false);
     setIsDeleteModalOpen(false);
@@ -136,12 +105,10 @@ export default function VaultItemDetail({
 
   useEffect(() => {
     if (!targetVaultId) return;
-
     async function fetchVaultData() {
       try {
         const fetchedVaults = await invoke<InnerVault[]>('get_vaults');
         setAllVaults(fetchedVaults);
-
         if (targetVaultId !== '00000000-0000-0000-0000-000000000000') {
           const v = fetchedVaults.find((v) => v.id === targetVaultId);
           if (v) setVaultName(v.name);
@@ -164,25 +131,9 @@ export default function VaultItemDetail({
     return new TextDecoder().decode(new Uint8Array(bytes));
   };
 
-  const getPasswordBytes = (acc: Account): number[] | null => {
-    switch (acc.account_type) {
-      case 'Login':
-      case 'Password':
-        return acc.password;
-      case 'Credit Card':
-        return acc.cvv;
-      case 'Crypto Wallet':
-        return acc.seed_phrase;
-      default:
-        return null;
-    }
-  };
-
-  const passwordString = decodeBytes(getPasswordBytes(account));
+  // --- PARSE PUBLIC NOTES & METADATA ---
   const rawNotes = decodeBytes(dynAccount.notes as number[] | undefined);
-
   let finalNotesString = rawNotes;
-  let extCardNumber = '';
   let extCardExp = '';
   let extCardName = '';
   let extWalletAddress = '';
@@ -198,7 +149,6 @@ export default function VaultItemDetail({
 
     const lines = extData.split('\n');
     lines.forEach((line) => {
-      if (line.startsWith('Card Number: ')) extCardNumber = line.replace('Card Number: ', '');
       if (line.startsWith('Card Exp: ')) extCardExp = line.replace('Card Exp: ', '');
       if (line.startsWith('Card Name: ')) extCardName = line.replace('Card Name: ', '');
       if (line.startsWith('Wallet: ')) extWalletAddress = line.replace('Wallet: ', '');
@@ -209,30 +159,60 @@ export default function VaultItemDetail({
     });
   }
 
-  // SECURE CLIPBOARD COPY
-  const copyToClipboard = async (text: string, fieldName: string) => {
+  // --- ZERO KNOWLEDGE BACKEND ACTIONS ---
+
+  const toggleSecretReveal = async (field: string) => {
+    if (revealedSecrets[field]) {
+      // Purge from React state instantly
+      const newSecrets = { ...revealedSecrets };
+      delete newSecrets[field];
+      setRevealedSecrets(newSecrets);
+    } else {
+      // Fetch just-in-time from Rust
+      try {
+        const secret = await invoke<string>('reveal_secret', { accountId: account.id, field });
+        setRevealedSecrets({ ...revealedSecrets, [field]: secret });
+        // NOTE: onUpdated() removed so accessing visual data doesn't trigger a refresh
+      } catch (err) {
+        console.error('Failed to decrypt secret', err);
+      }
+    }
+  };
+
+  const copySecureBackend = async (field: string, displayLabel: string = field) => {
+    try {
+      // Rust bypasses React entirely and writes directly to the OS clipboard
+      await invoke('copy_secret_to_clipboard', { accountId: account.id, field });
+      window.dispatchEvent(new Event('app-clipboard-copied'));
+      setCopiedField(displayLabel);
+      setTimeout(() => setCopiedField(null), 2000);
+      onUpdated();
+    } catch (err) {
+      console.error('Failed to copy secret via backend.', err);
+    }
+  };
+
+  const copyPlaintext = async (text: string, fieldName: string) => {
     if (!text) return;
     try {
       await writeText(text);
       window.dispatchEvent(new Event('app-clipboard-copied'));
-
-      // Update the accessed_at timestamp silently in the background
-      await invoke('update_accessed_at', { accountId: account.id });
-      onUpdated(); // Silently trigger a UI refresh to show the new time
-    } catch (err) {
-      console.warn('Tauri clipboard unavailable, using web fallback.', err);
+    } catch {
       await navigator.clipboard.writeText(text);
     }
-
     setCopiedField(fieldName);
     setTimeout(() => setCopiedField(null), 2000);
   };
+
+  // --- SAFE MUTATION ACTIONS ---
+  // We MUST fetch the full account from Rust before saving, otherwise we overwrite secrets with null!
 
   const toggleFavorite = async () => {
     if (isUpdating) return;
     setIsUpdating(true);
     try {
-      const updatedAccount = { ...account, is_favorite: !account.is_favorite };
+      const fullAcc = await invoke<Account>('get_full_account', { accountId: account.id });
+      const updatedAccount = { ...fullAcc, is_favorite: !fullAcc.is_favorite };
       await invoke('save_account', { account: updatedAccount });
       onUpdated();
     } catch (err) {
@@ -246,11 +226,12 @@ export default function VaultItemDetail({
     if (isUpdating) return;
     setIsUpdating(true);
     try {
-      const isCurrentlyArchived = !!account.metadata.archived_at;
+      const fullAcc = await invoke<Account>('get_full_account', { accountId: account.id });
+      const isCurrentlyArchived = !!fullAcc.metadata.archived_at;
       const updatedAccount = {
-        ...account,
+        ...fullAcc,
         metadata: {
-          ...account.metadata,
+          ...fullAcc.metadata,
           archived_at: isCurrentlyArchived ? null : Date.now(),
         },
       };
@@ -272,7 +253,6 @@ export default function VaultItemDetail({
         accountId: account.id,
         newVaultId: newVaultId,
       });
-
       onUpdated();
       setIsMoveModalOpen(false);
       onClose();
@@ -288,11 +268,13 @@ export default function VaultItemDetail({
     if (isUpdating || account.account_type !== 'Login') return;
     setIsUpdating(true);
     try {
-      const loginAcc = account as LoginAccount;
+      const fullAcc = await invoke<Account>('get_full_account', { accountId: account.id });
+      const loginAcc = fullAcc as LoginAccount;
+
       const newCodes = [...loginAcc.recovery_codes];
       newCodes[index].is_used = !newCodes[index].is_used;
-
       const updatedAccount = { ...loginAcc, recovery_codes: newCodes };
+
       await invoke('save_account', { account: updatedAccount });
       onUpdated();
     } catch (err) {
@@ -357,6 +339,8 @@ export default function VaultItemDetail({
     }
   };
 
+  // --- UI COMPONENTS ---
+
   const DetailRow = ({ label, value, field }: { label: string; value: string; field: string }) => (
     <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-center justify-between min-w-0 w-full overflow-hidden">
       <div className="flex flex-col flex-1 min-w-0 pr-8">
@@ -366,7 +350,7 @@ export default function VaultItemDetail({
         <p className="text-sm font-medium text-text-main truncate select-text">{value}</p>
       </div>
       <Button
-        onPress={() => copyToClipboard(value, field)}
+        onPress={() => copyPlaintext(value, field)}
         className={`absolute right-3 top-1/2 -translate-y-1/2 p-2 text-text-muted opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 rounded-md transition-all ${kbRing}`}
         aria-label={`Copy ${label}`}
       >
@@ -379,46 +363,44 @@ export default function VaultItemDetail({
     </div>
   );
 
-  const PasswordRow = ({
-    label,
-    value,
-    field,
-  }: {
-    label: string;
-    value: string;
-    field: string;
-  }) => (
-    <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-center justify-between min-w-0 w-full overflow-hidden">
-      <div className="flex flex-col flex-1 min-w-0 pr-24">
-        <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
-          {label}
-        </label>
-        <p className="text-sm font-mono text-text-main truncate select-text">
-          {showPassword ? value : '••••••••••••••••'}
-        </p>
+  // Component for True Secrets (Backend Fetch required)
+  const SecretRow = ({ label, backendField }: { label: string; backendField: string }) => {
+    const isRevealed = !!revealedSecrets[backendField];
+    const value = revealedSecrets[backendField];
+
+    return (
+      <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-center justify-between min-w-0 w-full overflow-hidden">
+        <div className="flex flex-col flex-1 min-w-0 pr-24">
+          <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
+            {label}
+          </label>
+          <p className="text-sm font-mono text-text-main truncate select-text whitespace-pre-wrap break-all">
+            {isRevealed ? value : '••••••••••••••••'}
+          </p>
+        </div>
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center opacity-0 group-hover:opacity-100 transition-opacity bg-background pl-2">
+          <Button
+            onPress={() => toggleSecretReveal(backendField)}
+            className={`p-2 text-text-muted hover:text-text-main hover:bg-surface rounded-md transition-colors mr-1 ${kbRing}`}
+            aria-label={isRevealed ? 'Hide value' : 'Show value'}
+          >
+            {isRevealed ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </Button>
+          <Button
+            onPress={() => copySecureBackend(backendField)}
+            className={`p-2 text-text-muted hover:text-primary hover:bg-primary/10 rounded-md transition-colors ${kbRing}`}
+            aria-label={`Copy ${label}`}
+          >
+            {copiedField === backendField ? (
+              <Check className="w-4 h-4 text-success" />
+            ) : (
+              <Copy className="w-4 h-4" />
+            )}
+          </Button>
+        </div>
       </div>
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center opacity-0 group-hover:opacity-100 transition-opacity bg-background pl-2">
-        <Button
-          onPress={() => setShowPassword(!showPassword)}
-          className={`p-2 text-text-muted hover:text-text-main hover:bg-surface rounded-md transition-colors mr-1 ${kbRing}`}
-          aria-label={showPassword ? 'Hide value' : 'Show value'}
-        >
-          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-        </Button>
-        <Button
-          onPress={() => copyToClipboard(value, field)}
-          className={`p-2 text-text-muted hover:text-primary hover:bg-primary/10 rounded-md transition-colors ${kbRing}`}
-          aria-label={`Copy ${label}`}
-        >
-          {copiedField === field ? (
-            <Check className="w-4 h-4 text-success" />
-          ) : (
-            <Copy className="w-4 h-4" />
-          )}
-        </Button>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const UrlRow = ({ label, value }: { label: string; value: string }) => (
     <div
@@ -437,31 +419,34 @@ export default function VaultItemDetail({
     </div>
   );
 
-  const NotesRow = ({ value, field }: { value: string; field: string }) => (
-    <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-start justify-between min-w-0 w-full overflow-hidden">
-      <div className="flex flex-col flex-1 min-w-0 pr-8">
-        {account.account_type !== 'Secure Note' && (
-          <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
-            Note
-          </label>
-        )}
-        <p className="text-sm text-text-main whitespace-pre-wrap font-mono leading-relaxed break-all w-full overflow-hidden select-text">
-          {value}
-        </p>
+  const NotesRow = () => {
+    if (!finalNotesString.trim()) return null;
+    return (
+      <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-start justify-between min-w-0 w-full overflow-hidden">
+        <div className="flex flex-col flex-1 min-w-0 pr-8">
+          {account.account_type !== 'Secure Note' && (
+            <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
+              Note
+            </label>
+          )}
+          <p className="text-sm text-text-main whitespace-pre-wrap font-mono leading-relaxed break-all w-full overflow-hidden select-text">
+            {finalNotesString}
+          </p>
+        </div>
+        <Button
+          onPress={() => copyPlaintext(finalNotesString, 'notes')}
+          className={`absolute right-3 top-3 p-2 text-text-muted opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 rounded-md transition-all ${kbRing}`}
+          aria-label="Copy Note"
+        >
+          {copiedField === 'notes' ? (
+            <Check className="w-4 h-4 text-success" />
+          ) : (
+            <Copy className="w-4 h-4" />
+          )}
+        </Button>
       </div>
-      <Button
-        onPress={() => copyToClipboard(value, field)}
-        className={`absolute right-3 top-3 p-2 text-text-muted opacity-0 group-hover:opacity-100 hover:text-primary hover:bg-primary/10 rounded-md transition-all ${kbRing}`}
-        aria-label="Copy Note"
-      >
-        {copiedField === field ? (
-          <Check className="w-4 h-4 text-success" />
-        ) : (
-          <Copy className="w-4 h-4" />
-        )}
-      </Button>
-    </div>
-  );
+    );
+  };
 
   const renderCredentials = () => {
     switch (account.account_type) {
@@ -474,9 +459,7 @@ export default function VaultItemDetail({
             {dynAccount.email && (
               <DetailRow label="Email" value={dynAccount.email as string} field="email" />
             )}
-            {passwordString && (
-              <PasswordRow label="Password" value={passwordString} field="password" />
-            )}
+            <SecretRow label="Password" backendField="password" />
             {dynAccount.url && <UrlRow label="Website" value={dynAccount.url as string} />}
           </>
         );
@@ -490,9 +473,7 @@ export default function VaultItemDetail({
                 field="identifier"
               />
             )}
-            {passwordString && (
-              <PasswordRow label="Password / Secret Key" value={passwordString} field="password" />
-            )}
+            <SecretRow label="Password / Secret Key" backendField="password" />
             {dynAccount.url && <UrlRow label="Endpoint URL" value={dynAccount.url as string} />}
           </>
         );
@@ -504,13 +485,10 @@ export default function VaultItemDetail({
             {extCardName && (
               <DetailRow label="Cardholder Name" value={extCardName} field="cardholder_name" />
             )}
-            {extCardNumber && (
-              <PasswordRow label="Card Number" value={extCardNumber} field="card_number" />
-            )}
+            <SecretRow label="Card Number" backendField="card_number" />
             {extCardExp && <DetailRow label="Expiration" value={extCardExp} field="expiration" />}
-            {passwordString && (
-              <PasswordRow label="CVV / Security Code" value={passwordString} field="cvv" />
-            )}
+            {/* FIX: Now explicitly calls the "cvv" backend field */}
+            <SecretRow label="CVV / Security Code" backendField="cvv" />
           </>
         );
       case 'Identity':
@@ -543,19 +521,17 @@ export default function VaultItemDetail({
             {extWalletAddress && (
               <DetailRow label="Wallet Address" value={extWalletAddress} field="wallet_address" />
             )}
-            {passwordString && (
-              <PasswordRow
-                label="Seed Phrase / Private Key"
-                value={passwordString}
-                field="seed_phrase"
-              />
-            )}
+            {/* FIX: Now explicitly calls the "seed_phrase" backend field */}
+            <SecretRow label="Seed Phrase / Private Key" backendField="seed_phrase" />
           </>
         );
       default:
         return null;
     }
   };
+
+  const isRecoveryRevealed = !!revealedSecrets['recovery_codes'];
+  const rawRecoveryCodes = revealedSecrets['recovery_codes']?.split('\n') || [];
 
   return (
     <div className="flex-1 flex flex-col h-full bg-surface animate-in fade-in duration-200 min-w-0 overflow-x-hidden select-none">
@@ -569,7 +545,17 @@ export default function VaultItemDetail({
 
         <div className="flex items-center space-x-1 relative shrink-0">
           <Button
-            onPress={() => onEditRequest(account)}
+            onPress={async () => {
+              // Ensure we provide the plaintext payload to the Edit Form!
+              try {
+                const fullAccount = await invoke<Account>('get_full_account', {
+                  accountId: account.id,
+                });
+                onEditRequest(fullAccount);
+              } catch (e) {
+                console.error('Failed to load account for editing', e);
+              }
+            }}
             className={`flex items-center px-3 py-1.5 text-sm font-semibold text-text-muted hover:text-primary rounded-md hover:bg-primary/10 transition-colors ${kbRing}`}
           >
             <Edit className="w-4 h-4 mr-1.5" /> Edit
@@ -586,7 +572,7 @@ export default function VaultItemDetail({
             </Button>
             <Popover
               placement="bottom end"
-              className="w-48 bg-surface border border-border rounded-lg shadow-xl p-1.5 z-50 data-entering:animate-in data-[entering]:fade-in data-[entering]:slide-in-from-top-2 data-exiting:animate-outata-[exiting]:fade-out data-[exiting]:slide-out-to-top-2 select-none"
+              className="w-48 bg-surface border border-border rounded-lg shadow-xl p-1.5 z-50 animate-in fade-in slide-in-from-top-2 select-none"
             >
               <Menu className="outline-none flex flex-col">
                 <MenuItem
@@ -599,16 +585,13 @@ export default function VaultItemDetail({
                   />
                   {account.is_favorite ? 'Remove Favorite' : 'Add to Favorites'}
                 </MenuItem>
-
                 <MenuItem
                   onAction={() => setIsMoveModalOpen(true)}
-                  className="w-full flex items-center rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-gray-200ransition-colors"
+                  className="w-full flex items-center rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-gray-200 transition-colors"
                 >
                   <FolderInput className="w-4 h-4 mr-3 text-text-muted" /> Move...
                 </MenuItem>
-
                 <Separator className="h-px bg-border my-1.5 mx-2" />
-
                 <MenuItem
                   onAction={handleArchiveToggle}
                   className="w-full flex items-center rounded-md px-3 py-2 text-sm text-text-main cursor-pointer outline-none data-focused:bg-gray-200 transition-colors"
@@ -623,7 +606,6 @@ export default function VaultItemDetail({
                     </>
                   )}
                 </MenuItem>
-
                 <MenuItem
                   onAction={() => setIsDeleteModalOpen(true)}
                   className="w-full flex items-center rounded-md px-3 py-2 text-sm text-danger cursor-pointer outline-none data-focused:bg-danger/10 transition-colors"
@@ -674,40 +656,76 @@ export default function VaultItemDetail({
                       {has2FA ? 'Enabled' : 'Disabled'}
                     </span>
                   </div>
+
                   {recoveryCodes && recoveryCodes.length > 0 && (
-                    <div className="p-5 bg-background border border-border rounded-xl min-w-0 w-full">
-                      <label className="block text-xs font-bold text-text-muted mb-4 uppercase tracking-wider">
-                        Recovery Codes
-                      </label>
+                    <div className="p-5 bg-background border border-border rounded-xl min-w-0 w-full group relative">
+                      <div className="flex justify-between items-center mb-4">
+                        <label className="block text-xs font-bold text-text-muted uppercase tracking-wider">
+                          Recovery Codes
+                        </label>
+                        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            onPress={() => toggleSecretReveal('recovery_codes')}
+                            className={`p-1.5 text-text-muted hover:text-text-main hover:bg-surface rounded-md transition-colors mr-1 ${kbRing}`}
+                            aria-label={isRecoveryRevealed ? 'Hide Codes' : 'Show Codes'}
+                          >
+                            {isRecoveryRevealed ? (
+                              <EyeOff className="w-4 h-4" />
+                            ) : (
+                              <Eye className="w-4 h-4" />
+                            )}
+                          </Button>
+                          <Button
+                            onPress={() => copySecureBackend('recovery_codes')}
+                            className={`p-1.5 text-text-muted hover:text-primary hover:bg-primary/10 rounded-md transition-colors ${kbRing}`}
+                            aria-label="Copy All Codes"
+                          >
+                            {copiedField === 'recovery_codes' ? (
+                              <Check className="w-4 h-4 text-success" />
+                            ) : (
+                              <Copy className="w-4 h-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 min-w-0">
-                        {recoveryCodes.map(
-                          (rc: { code: number[]; is_used: boolean }, idx: number) => {
-                            const codeString = decodeBytes(rc.code);
-                            return (
-                              <div key={idx} className="flex items-center space-x-2 min-w-0">
-                                <Button
-                                  onPress={() =>
-                                    !rc.is_used && copyToClipboard(codeString, `code-${idx}`)
-                                  }
-                                  isDisabled={rc.is_used}
-                                  className={`flex-1 min-w-0 text-sm font-mono p-2.5 rounded-lg text-left transition-colors border flex items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${rc.is_used ? 'bg-surface border-transparent text-text-muted line-through opacity-40 cursor-not-allowed' : 'bg-background border-border text-text-main hover:border-primary hover:text-primary cursor-pointer'}`}
-                                >
-                                  <span className="truncate">{codeString}</span>
-                                  {copiedField === `code-${idx}` && (
-                                    <Check className="w-4 h-4 text-success shrink-0 ml-2" />
-                                  )}
-                                </Button>
-                                <Button
-                                  onPress={() => toggleRecoveryCode(idx)}
-                                  className={`p-2.5 border rounded-lg transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${rc.is_used ? 'bg-primary border-primary text-white' : 'bg-background border-border text-text-muted hover:border-primary hover:text-primary'}`}
-                                  aria-label={rc.is_used ? 'Mark as Unused' : 'Mark as Used'}
-                                >
-                                  <CheckSquare className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            );
-                          }
-                        )}
+                        {recoveryCodes.map((rc, idx) => {
+                          const codeString = isRecoveryRevealed
+                            ? rawRecoveryCodes[idx] || 'ERROR'
+                            : '••••••••••••';
+                          return (
+                            <div key={idx} className="flex items-center space-x-2 min-w-0">
+                              <Button
+                                onPress={() =>
+                                  !rc.is_used && copyPlaintext(codeString, `code-${idx}`)
+                                }
+                                isDisabled={rc.is_used || !isRecoveryRevealed}
+                                className={`flex-1 min-w-0 text-sm font-mono p-2.5 rounded-lg text-left transition-colors border flex items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+                                  rc.is_used
+                                    ? 'bg-surface border-transparent text-text-muted line-through opacity-40 cursor-not-allowed'
+                                    : 'bg-background border-border text-text-main hover:border-primary hover:text-primary cursor-pointer'
+                                }`}
+                              >
+                                <span className="truncate select-text">{codeString}</span>
+                                {copiedField === `code-${idx}` && (
+                                  <Check className="w-4 h-4 text-success shrink-0 ml-2" />
+                                )}
+                              </Button>
+                              <Button
+                                onPress={() => toggleRecoveryCode(idx)}
+                                className={`p-2.5 border rounded-lg transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${
+                                  rc.is_used
+                                    ? 'bg-primary border-primary text-white'
+                                    : 'bg-background border-border text-text-muted hover:border-primary hover:text-primary'
+                                }`}
+                                aria-label={rc.is_used ? 'Mark as Unused' : 'Mark as Used'}
+                              >
+                                <CheckSquare className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -717,7 +735,7 @@ export default function VaultItemDetail({
 
           {finalNotesString && (
             <div className="min-w-0 w-full">
-              <NotesRow value={finalNotesString} field="notes" />
+              <NotesRow />
             </div>
           )}
 
@@ -803,12 +821,13 @@ export default function VaultItemDetail({
         </div>
       </div>
 
+      {/* MODALS */}
       <ModalOverlay
         isOpen={isMoveModalOpen}
         onOpenChange={setIsMoveModalOpen}
-        className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
+        className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in"
       >
-        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-sm p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
+        <Modal className="relative bg-surface border border-border shadow-2xl rounded-xl w-full max-w-sm p-6 animate-in zoom-in-95 outline-none select-none">
           <Dialog className="outline-none">
             {({ close }) => (
               <>
@@ -842,7 +861,7 @@ export default function VaultItemDetail({
                     )}
                   </Button>
                   {allVaults
-                    .filter((vault) => vault.id !== '00000000-0000-0000-0000-000000000000')
+                    .filter((v) => v.id !== '00000000-0000-0000-0000-000000000000')
                     .map((vault) => {
                       const isCurrent = account.vault_id === vault.id;
                       return (
@@ -882,9 +901,9 @@ export default function VaultItemDetail({
       <ModalOverlay
         isOpen={isDeleteModalOpen}
         onOpenChange={setIsDeleteModalOpen}
-        className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm data-entering:animate-in data-[entering]:fade-in data-exiting:animate-out data-[exiting]:fade-out"
+        className="fixed inset-0 z-70 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in"
       >
-        <Modal className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 data-entering:animate-in data-[entering]:zoom-in-95 data-exiting:animate-out data-[exiting]:zoom-out-95 outline-none select-none">
+        <Modal className="relative bg-surface border border-danger/30 shadow-2xl rounded-xl w-full max-w-sm p-6 animate-in zoom-in-95 outline-none select-none">
           <Dialog className="outline-none">
             {({ close }) => (
               <>
