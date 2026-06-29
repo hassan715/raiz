@@ -180,32 +180,35 @@ fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, Strin
                 recovery_codes,
                 ..
             } => {
-                if password.is_some() {
-                    *password = Some(vec![]);
+                if let Some(pw) = password {
+                    *pw = vec![];
                 }
                 for rc in recovery_codes.iter_mut() {
                     rc.code = vec![];
                 }
             }
-            AccountDetails::Password { password, .. } => {
-                if password.is_some() {
-                    *password = Some(vec![]);
-                }
+            // Fix: Matches `Some` directly in the arm, satisfying collapsible_match
+            AccountDetails::Password {
+                password: Some(pw), ..
+            } => {
+                *pw = vec![];
             }
             AccountDetails::CreditCard {
                 card_number, cvv, ..
             } => {
-                if card_number.is_some() {
-                    *card_number = Some(vec![]);
+                if let Some(cn) = card_number {
+                    *cn = vec![];
                 }
-                if cvv.is_some() {
-                    *cvv = Some(vec![]);
+                if let Some(c) = cvv {
+                    *c = vec![];
                 }
             }
-            AccountDetails::CryptoWallet { seed_phrase, .. } => {
-                if seed_phrase.is_some() {
-                    *seed_phrase = Some(vec![]);
-                }
+            // Fix: Matches `Some` directly in the arm, satisfying collapsible_match
+            AccountDetails::CryptoWallet {
+                seed_phrase: Some(sp),
+                ..
+            } => {
+                *sp = vec![];
             }
             _ => {}
         }
@@ -692,9 +695,7 @@ pub fn run() {
     OsRng.fill_bytes(&mut ram_key);
 
     #[cfg(target_family = "unix")]
-    unsafe {
-        let _ = region::lock(ram_key.as_ptr(), ram_key.len());
-    }
+    let _ = region::lock(ram_key.as_ptr(), ram_key.len());
 
     let state = AppState {
         encrypted_vault_ram: Mutex::new(None),
