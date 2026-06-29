@@ -65,7 +65,6 @@ export default function VaultItemDetail({
   const [isUpdating, setIsUpdating] = useState(false);
 
   // --- ZERO KNOWLEDGE STATE ---
-  // Only stores secrets actively being viewed by the user. Purged immediately when hidden.
   const [revealedSecrets, setRevealedSecrets] = useState<Record<string, string>>({});
 
   const [vaultName, setVaultName] = useState<string>('Personal');
@@ -162,17 +161,15 @@ export default function VaultItemDetail({
   // --- ZERO KNOWLEDGE BACKEND ACTIONS ---
 
   const toggleSecretReveal = async (field: string) => {
-    if (revealedSecrets[field]) {
-      // Purge from React state instantly
+    // FIX: Check for undefined explicitly so empty strings don't cause silent failures
+    if (revealedSecrets[field] !== undefined) {
       const newSecrets = { ...revealedSecrets };
       delete newSecrets[field];
       setRevealedSecrets(newSecrets);
     } else {
-      // Fetch just-in-time from Rust
       try {
         const secret = await invoke<string>('reveal_secret', { accountId: account.id, field });
         setRevealedSecrets({ ...revealedSecrets, [field]: secret });
-        // NOTE: onUpdated() removed so accessing visual data doesn't trigger a refresh
       } catch (err) {
         console.error('Failed to decrypt secret', err);
       }
@@ -181,7 +178,6 @@ export default function VaultItemDetail({
 
   const copySecureBackend = async (field: string, displayLabel: string = field) => {
     try {
-      // Rust bypasses React entirely and writes directly to the OS clipboard
       await invoke('copy_secret_to_clipboard', { accountId: account.id, field });
       window.dispatchEvent(new Event('app-clipboard-copied'));
       setCopiedField(displayLabel);
@@ -189,6 +185,9 @@ export default function VaultItemDetail({
       onUpdated();
     } catch (err) {
       console.error('Failed to copy secret via backend.', err);
+      // FIX: Show a visual error (red X) if the secret is empty or missing in the DB
+      setCopiedField(displayLabel + '-error');
+      setTimeout(() => setCopiedField(null), 2000);
     }
   };
 
@@ -205,7 +204,6 @@ export default function VaultItemDetail({
   };
 
   // --- SAFE MUTATION ACTIONS ---
-  // We MUST fetch the full account from Rust before saving, otherwise we overwrite secrets with null!
 
   const toggleFavorite = async () => {
     if (isUpdating) return;
@@ -365,8 +363,10 @@ export default function VaultItemDetail({
 
   // Component for True Secrets (Backend Fetch required)
   const SecretRow = ({ label, backendField }: { label: string; backendField: string }) => {
-    const isRevealed = !!revealedSecrets[backendField];
-    const value = revealedSecrets[backendField];
+    // FIX: Safely handles empty string states
+    const isRevealed = revealedSecrets[backendField] !== undefined;
+    const rawValue = revealedSecrets[backendField];
+    const displayValue = rawValue === '' ? '(Empty)' : rawValue;
 
     return (
       <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-center justify-between min-w-0 w-full overflow-hidden">
@@ -374,8 +374,10 @@ export default function VaultItemDetail({
           <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
             {label}
           </label>
-          <p className="text-sm font-mono text-text-main truncate select-text whitespace-pre-wrap break-all">
-            {isRevealed ? value : '••••••••••••••••'}
+          <p
+            className={`text-sm font-mono truncate select-text whitespace-pre-wrap break-all ${rawValue === '' ? 'text-text-muted italic' : 'text-text-main'}`}
+          >
+            {isRevealed ? displayValue : '••••••••••••••••'}
           </p>
         </div>
         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center opacity-0 group-hover:opacity-100 transition-opacity bg-background pl-2">
@@ -393,6 +395,8 @@ export default function VaultItemDetail({
           >
             {copiedField === backendField ? (
               <Check className="w-4 h-4 text-success" />
+            ) : copiedField === backendField + '-error' ? (
+              <X className="w-4 h-4 text-danger" />
             ) : (
               <Copy className="w-4 h-4" />
             )}
@@ -487,7 +491,6 @@ export default function VaultItemDetail({
             )}
             <SecretRow label="Card Number" backendField="card_number" />
             {extCardExp && <DetailRow label="Expiration" value={extCardExp} field="expiration" />}
-            {/* FIX: Now explicitly calls the "cvv" backend field */}
             <SecretRow label="CVV / Security Code" backendField="cvv" />
           </>
         );
@@ -521,7 +524,6 @@ export default function VaultItemDetail({
             {extWalletAddress && (
               <DetailRow label="Wallet Address" value={extWalletAddress} field="wallet_address" />
             )}
-            {/* FIX: Now explicitly calls the "seed_phrase" backend field */}
             <SecretRow label="Seed Phrase / Private Key" backendField="seed_phrase" />
           </>
         );
@@ -530,7 +532,7 @@ export default function VaultItemDetail({
     }
   };
 
-  const isRecoveryRevealed = !!revealedSecrets['recovery_codes'];
+  const isRecoveryRevealed = revealedSecrets['recovery_codes'] !== undefined;
   const rawRecoveryCodes = revealedSecrets['recovery_codes']?.split('\n') || [];
 
   return (
@@ -546,7 +548,6 @@ export default function VaultItemDetail({
         <div className="flex items-center space-x-1 relative shrink-0">
           <Button
             onPress={async () => {
-              // Ensure we provide the plaintext payload to the Edit Form!
               try {
                 const fullAccount = await invoke<Account>('get_full_account', {
                   accountId: account.id,
@@ -682,6 +683,8 @@ export default function VaultItemDetail({
                           >
                             {copiedField === 'recovery_codes' ? (
                               <Check className="w-4 h-4 text-success" />
+                            ) : copiedField === 'recovery_codes-error' ? (
+                              <X className="w-4 h-4 text-danger" />
                             ) : (
                               <Copy className="w-4 h-4" />
                             )}
