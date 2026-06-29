@@ -161,7 +161,6 @@ export default function VaultItemDetail({
   // --- ZERO KNOWLEDGE BACKEND ACTIONS ---
 
   const toggleSecretReveal = async (field: string) => {
-    // FIX: Check for undefined explicitly so empty strings don't cause silent failures
     if (revealedSecrets[field] !== undefined) {
       const newSecrets = { ...revealedSecrets };
       delete newSecrets[field];
@@ -185,7 +184,6 @@ export default function VaultItemDetail({
       onUpdated();
     } catch (err) {
       console.error('Failed to copy secret via backend.', err);
-      // FIX: Show a visual error (red X) if the secret is empty or missing in the DB
       setCopiedField(displayLabel + '-error');
       setTimeout(() => setCopiedField(null), 2000);
     }
@@ -196,6 +194,10 @@ export default function VaultItemDetail({
     try {
       await writeText(text);
       window.dispatchEvent(new Event('app-clipboard-copied'));
+
+      // FIX: Ensure accessed_at is updated when copying plaintext (Usernames, Notes, Identities)
+      await invoke('update_accessed_at', { accountId: account.id });
+      onUpdated();
     } catch {
       await navigator.clipboard.writeText(text);
     }
@@ -361,12 +363,9 @@ export default function VaultItemDetail({
     </div>
   );
 
-  // Component for True Secrets (Backend Fetch required)
   const SecretRow = ({ label, backendField }: { label: string; backendField: string }) => {
-    // FIX: Safely handles empty string states
     const isRevealed = revealedSecrets[backendField] !== undefined;
     const rawValue = revealedSecrets[backendField];
-    const displayValue = rawValue === '' ? '(Empty)' : rawValue;
 
     return (
       <div className="group p-4 bg-background border border-border rounded-xl relative hover:border-primary/50 transition-colors flex items-center justify-between min-w-0 w-full overflow-hidden">
@@ -374,10 +373,8 @@ export default function VaultItemDetail({
           <label className="block text-xs font-bold text-text-muted mb-1.5 uppercase tracking-wider">
             {label}
           </label>
-          <p
-            className={`text-sm font-mono truncate select-text whitespace-pre-wrap break-all ${rawValue === '' ? 'text-text-muted italic' : 'text-text-main'}`}
-          >
-            {isRevealed ? displayValue : '••••••••••••••••'}
+          <p className="text-sm font-mono truncate select-text whitespace-pre-wrap break-all text-text-main">
+            {isRevealed ? rawValue : '••••••••••••••••'}
           </p>
         </div>
         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center opacity-0 group-hover:opacity-100 transition-opacity bg-background pl-2">
@@ -463,7 +460,8 @@ export default function VaultItemDetail({
             {dynAccount.email && (
               <DetailRow label="Email" value={dynAccount.email as string} field="email" />
             )}
-            <SecretRow label="Password" backendField="password" />
+            {/* FIX: Now checks if password exists before rendering */}
+            {dynAccount.password && <SecretRow label="Password" backendField="password" />}
             {dynAccount.url && <UrlRow label="Website" value={dynAccount.url as string} />}
           </>
         );
@@ -477,7 +475,9 @@ export default function VaultItemDetail({
                 field="identifier"
               />
             )}
-            <SecretRow label="Password / Secret Key" backendField="password" />
+            {dynAccount.password && (
+              <SecretRow label="Password / Secret Key" backendField="password" />
+            )}
             {dynAccount.url && <UrlRow label="Endpoint URL" value={dynAccount.url as string} />}
           </>
         );
@@ -489,9 +489,9 @@ export default function VaultItemDetail({
             {extCardName && (
               <DetailRow label="Cardholder Name" value={extCardName} field="cardholder_name" />
             )}
-            <SecretRow label="Card Number" backendField="card_number" />
+            {dynAccount.card_number && <SecretRow label="Card Number" backendField="card_number" />}
             {extCardExp && <DetailRow label="Expiration" value={extCardExp} field="expiration" />}
-            <SecretRow label="CVV / Security Code" backendField="cvv" />
+            {dynAccount.cvv && <SecretRow label="CVV / Security Code" backendField="cvv" />}
           </>
         );
       case 'Identity':
@@ -524,7 +524,9 @@ export default function VaultItemDetail({
             {extWalletAddress && (
               <DetailRow label="Wallet Address" value={extWalletAddress} field="wallet_address" />
             )}
-            <SecretRow label="Seed Phrase / Private Key" backendField="seed_phrase" />
+            {dynAccount.seed_phrase && (
+              <SecretRow label="Seed Phrase / Private Key" backendField="seed_phrase" />
+            )}
           </>
         );
       default:

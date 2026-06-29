@@ -181,19 +181,34 @@ fn get_accounts(state: tauri::State<'_, AppState>) -> Result<Vec<Account>, Strin
                 recovery_codes,
                 ..
             } => {
-                *password = None;
+                // If it exists, send an empty array so React knows to render the row
+                if password.is_some() {
+                    *password = Some(vec![]);
+                }
                 for rc in recovery_codes.iter_mut() {
                     rc.code = vec![];
                 }
             }
-            AccountDetails::Password { password, .. } => *password = None,
+            AccountDetails::Password { password, .. } => {
+                if password.is_some() {
+                    *password = Some(vec![]);
+                }
+            }
             AccountDetails::CreditCard {
                 card_number, cvv, ..
             } => {
-                *card_number = None;
-                *cvv = None;
+                if card_number.is_some() {
+                    *card_number = Some(vec![]);
+                }
+                if cvv.is_some() {
+                    *cvv = Some(vec![]);
+                }
             }
-            AccountDetails::CryptoWallet { seed_phrase, .. } => *seed_phrase = None,
+            AccountDetails::CryptoWallet { seed_phrase, .. } => {
+                if seed_phrase.is_some() {
+                    *seed_phrase = Some(vec![]);
+                }
+            }
             _ => {}
         }
         scrubbed.push(acc);
