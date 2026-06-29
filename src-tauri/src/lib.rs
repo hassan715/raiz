@@ -8,6 +8,7 @@ use rand::{rngs::OsRng, RngCore};
 use region::{lock, unlock};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use storage::{load_vault, recover_vault, save_vault, update_vault};
 use uuid::Uuid;
@@ -28,6 +29,23 @@ fn prevent_os_swap() {
 
 #[cfg(not(target_family = "unix"))]
 fn prevent_os_swap() {}
+
+// --- DYNAMIC PATH RESOLUTION ---
+/// Resolves the cross-platform path to the user's .raiz directory.
+/// e.g. %USERPROFILE%\.raiz\raiz_vault.enc (Windows) or ~/.raiz/raiz_vault.enc (Unix)
+fn get_vault_path() -> String {
+    let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    path.push(".raiz");
+    path.push("data");
+
+    // Ensure the directory exists securely before we try to read/write files in it
+    if !path.exists() {
+        let _ = fs::create_dir_all(&path);
+    }
+
+    path.push("raiz_vault.enc");
+    path.to_string_lossy().to_string()
+}
 
 // --- ACTIVE MEMORY STATE ---
 struct AppState {
@@ -701,7 +719,7 @@ pub fn run() {
         encrypted_vault_ram: Mutex::new(None),
         ram_key,
         dek: Mutex::new(None),
-        file_path: "raiz_vault.enc".to_string(),
+        file_path: get_vault_path(),
     };
 
     tauri::Builder::default()
@@ -793,4 +811,39 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// --- 3. THE TEST ---
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_dynamic_vault_path_resolution() {
+        let path_str = get_vault_path();
+        let path = Path::new(&path_str);
+
+        // 1. Assert the file name is correct
+        assert_eq!(
+            path.file_name().unwrap().to_str().unwrap(),
+            "raiz_vault.enc"
+        );
+
+        // 2. Assert the direct parent is 'data'
+        let parent_data = path.parent().expect("Path should have a parent directory");
+        assert_eq!(parent_data.file_name().unwrap().to_str().unwrap(), "data");
+
+        // 3. Assert the grandparent is '.raiz'
+        let parent_raiz = parent_data
+            .parent()
+            .expect("Path should have a grandparent directory");
+        assert_eq!(parent_raiz.file_name().unwrap().to_str().unwrap(), ".raiz");
+
+        // 4. Assert the nested folder structure was physically created on the file system
+        assert!(
+            parent_data.exists(),
+            "The .raiz/data directory should exist on the filesystem after resolution"
+        );
+    }
 }
