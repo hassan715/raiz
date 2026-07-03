@@ -65,7 +65,6 @@ export default function TitleBar({
             : 'bg-transparent border-transparent'
         }`}
       >
-        <span className="w-2.5 h-2.5 rounded-full bg-primary inline-block pointer-events-none" />
         <span className="pointer-events-none">Raiz</span>
       </div>
 
