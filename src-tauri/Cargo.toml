@@ -1,6 +1,6 @@
 [package]
 name = "raiz"
-version = "0.1.0-beta.1"
+version = "0.1.0"
 description = "A hyper-secure, offline-first desktop password manager"
 authors = ["Hassan"]
 edition = "2021"
