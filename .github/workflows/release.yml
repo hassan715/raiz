@@ -1,0 +1,68 @@
+name: Release
+
+# This tells GitHub to ONLY run this script when you push a tag that starts with 'v' (e.g., v0.1.0-beta.1)
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: # Allows you to click a button on GitHub to run it manually if needed
+
+jobs:
+  build-and-release:
+    permissions:
+      contents: write # Allows the action to upload files to your GitHub Releases
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Here we tell GitHub which operating systems to spin up
+        include:
+          - platform: 'macos-latest' # Builds Apple Silicon (M1/M2/M3) Mac versions
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest' # Builds Intel Mac versions
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04' # Builds Linux versions
+            args: ''
+          - platform: 'windows-latest' # Builds Windows versions
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux Dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # If it's a Mac, install the tools to build for both Intel and Apple Silicon
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Frontend Dependencies
+        run: npm install
+
+      - name: Build and Upload Tauri App
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }} # Uses the tag you pushed
+          releaseName: 'Raiz ${{ github.ref_name }}'
+          releaseBody: 'See the assets below to download and install Raiz for your operating system.'
+          releaseDraft: true # Sets the release to 'Draft' so you can review it before making it public
+          prerelease: true
+          args: ${{ matrix.args }}
